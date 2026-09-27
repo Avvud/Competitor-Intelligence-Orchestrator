@@ -1,0 +1,30 @@
+# Connector toggles and rate limits
+connectors:
+  website:        { enabled: true,  delay_s: 2.0 }
+  news_rss:       { enabled: true,  delay_s: 1.0 }
+  youtube:        { enabled: true,  delay_s: 1.0 }
+  instagram_bd:   { enabled: false, delay_s: 2.0 }
+  meta_ad_library:{ enabled: true,  delay_s: 2.0 }
+  reviews_public: { enabled: true,  delay_s: 2.0 }
+  jobs_public:    { enabled: true,  delay_s: 2.0 }
+  registry_public:{ enabled: true,  delay_s: 3.0 }
+  manual_entry:   { enabled: true }
+
+# LLM limits
+llm:
+  groq:
+    requests_per_minute: 25
+    max_retries: 5
+    backoff_base_s: 1.0
+    backoff_max_s: 60.0
+  local:
+    context_max_tokens: 8192
+    chunk_target_tokens: 1500
+    timeout_s: 300
+    concurrency: 1
+    repair_retries: 2
+
+# Daily budget caps (Groq free tier)
+budget:
+  daily_smart_requests: 500
+  daily_smart_tokens: 100000
