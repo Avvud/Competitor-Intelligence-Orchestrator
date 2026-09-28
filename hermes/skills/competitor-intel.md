@@ -1,16 +1,24 @@
 ---
 name: competitor-intel
-description: Orchestrates end-to-end competitive intelligence gathering, profiling, discovery, multi-channel data collection, LLM analysis, comparison matrices, and multi-format report generation.
+description: Orchestrates end-to-end competitive intelligence gathering, profiling, discovery, multi-channel data collection, LLM analysis, comparison matrices, and multi-format report generation. MUST BE USED whenever user requests company profiling or competitor analysis.
 ---
 
 # Competitor Intelligence Orchestrator Skill
 
-This skill guides Hermes Agent in running competitive intelligence pipelines using the `competitor-intel` MCP server tools.
+This skill governs Hermes Agent execution when running competitive intelligence tasks using the `competitor_intel` MCP server tools.
 
-## Protocol & Guardrails
+## 🛑 MANDATORY TOOL-ONLY PROTOCOL (STRICT ENFORCEMENT)
 
-1. **Output Conciseness**: Keep tool outputs short (~summaries + IDs). Do not print full raw scraped pages into chat.
-2. **Resumable Long Tasks**: Long tasks (`discover_competitors`, `collect_data`, `analyse`, `generate_comparison`, `build_reports`) return a `job_id`. Monitor progress using `get_status(company_id, job_id)`.
-3. **Structured Approval Steps**:
-   - **Checkpoint 1 (Profile Review)**: Always present the target company profile to the user and request confirmation before running `discover_competitors`.
-   - **Checkpoint 2 (Competitor Approval)**: Present ranked candidate competitors to the user for explicit approval before calling `collect_data`.
+1. **NO MEMORY-BASED REPORTS**: You are STRICTLY PROHIBITED from writing competitor reports, discovery matrices, or geo-tiering analysis directly from your own training knowledge.
+2. **TOOL CALL MANDATE**: You MUST start every analysis by explicitly calling the MCP tool `create_company_from_url(url="...")`. Editing text or guessing data without calling the database tools is a CRITICAL FAILURE.
+3. **PIPELINE SEQUENCE & CHECKPOINTS**:
+   - **Step 1**: Call `create_company_from_url(url=...)`.
+   - **Checkpoint 1**: Present extracted profile to user and call `confirm_profile(company_id=...)` only after confirmation.
+   - **Step 2**: Call `discover_competitors(company_id=...)` and then `score_and_rank(company_id=...)`.
+   - **Checkpoint 2**: Present candidate list to user for explicit approval.
+   - **Step 3**: Call `collect_data(company_id=...)` ONLY for approved competitors.
+   - **Step 4**: Call `analyse(company_id=...)` and `generate_comparison(company_id=...)`.
+   - **Step 5**: Call `build_reports(company_id=...)`.
+
+4. **Output Conciseness**: Keep intermediate outputs concise. Do not paste full raw HTML into chat.
+5. **Resumable Long Tasks**: Long jobs (`discover_competitors`, `collect_data`, `analyse`, `generate_comparison`, `build_reports`) return a `job_id`. Monitor progress using `get_status(company_id, job_id)`.
