@@ -72,7 +72,7 @@ def _redact(text: str) -> str:
     """Remove API key-looking strings from a message before logging."""
     text = re.sub(r"(Bearer\s+)[A-Za-z0-9_\-\.]{10,}", r"\1***REDACTED***", text)
     text = re.sub(r"(api.?key[=:\s]+)[A-Za-z0-9_\-\.]{10,}", r"\1***REDACTED***", text, flags=re.I)
-    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "FALLBACK_API_KEY"):
+    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "FALLBACK_API_KEY", "SERPER_API_KEY"):
         val = os.environ.get(k, "")
         if val:
             text = text.replace(val, "***REDACTED***")

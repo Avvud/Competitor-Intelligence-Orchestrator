@@ -78,9 +78,16 @@ def build_query_sets(profile: CompanyProfile) -> dict[str, list[str]]:
     if state:
         result["state"] = _make_queries(industry_label, state, keywords)
 
-    # National — uses country name
+    # National — uses country name or brand/industry fallback if no geo set
     if country:
         result["national"] = _make_queries(industry_label, country, keywords)
+    elif not city and not state:
+        brand = _clean(profile.name) or industry_label
+        result["national"] = [
+            f"{brand} competitors",
+            f"{brand} alternatives",
+            f"top {industry_label} companies",
+        ]
 
     return result
 
