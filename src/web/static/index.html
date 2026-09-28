@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Competitor Intelligence Orchestrator</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              900: '#1e3a8a',
+            },
+            darkbg: '#0F172A',
+            cardbg: '#1E293B',
+            borderbg: '#334155'
+          }
+        }
+      }
+    }
+  </script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    .gradient-text {
+      background: linear-gradient(90deg, #3B82F6 0%, #8B5CF6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .stepper-line {
+      height: 3px;
+      flex-grow: 1;
+      background-color: #334155;
+    }
+    .stepper-line.active {
+      background-color: #3B82F6;
+    }
+    /* Toast transition */
+    #toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="flex flex-col gap-2"></div>
+
+  <!-- Navbar -->
+  <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3 cursor-pointer" onclick="showDashboard()">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/20">
+          ⚡
+        </div>
+        <div>
+          <h1 class="text-xl font-bold gradient-text leading-tight">Competitor Intelligence</h1>
+          <p class="text-xs text-slate-400">Autonomous Orchestrator & Strategic Insights</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button onclick="toggleJobsDrawer()" class="relative px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm flex items-center gap-2 border border-slate-700 transition">
+          <i class="fa-solid fa-list-check text-blue-400"></i>
+          <span>Activity / Jobs</span>
+          <span id="active-jobs-badge" class="hidden w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
+        </button>
+
+        <button onclick="toggleDarkMode()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+          <i id="theme-icon" class="fa-solid fa-moon"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Activity Jobs Drawer -->
+  <div id="jobs-drawer" class="fixed inset-y-0 right-0 w-80 bg-slate-900 border-l border-slate-800 shadow-2xl z-50 transform translate-x-full transition-transform duration-300 flex flex-col">
+    <div class="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+      <h3 class="font-semibold text-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-microchip text-purple-400"></i> Active & Recent Jobs
+      </h3>
+      <button onclick="toggleJobsDrawer()" class="text-slate-400 hover:text-white">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+    </div>
+    <div id="jobs-drawer-content" class="p-4 flex-1 overflow-y-auto flex flex-col gap-3">
+      <p class="text-xs text-slate-500 italic">No recent jobs logged.</p>
+    </div>
+  </div>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6">
+
+    <!-- VIEW 1: DASHBOARD -->
+    <div id="view-dashboard" class="space-y-8">
+      
+      <!-- Hero Input Section -->
+      <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-8 rounded-2xl border border-slate-800 shadow-2xl relative overflow-hidden">
+        <div class="max-w-2xl space-y-4">
+          <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Automated Intelligence Pipeline
+          </span>
+          <h2 class="text-3xl font-extrabold text-white tracking-tight">Analyse any market competitor in seconds</h2>
+          <p class="text-slate-400 text-sm">Enter a target company URL to extract profiles, discover key market competitors, build 1v1 comparison matrices, and download executive reports.</p>
+          
+          <form onsubmit="handleCreateCompany(event)" class="flex flex-col sm:flex-row gap-3 pt-2">
+            <div class="relative flex-1">
+              <i class="fa-solid fa-globe absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"></i>
+              <input type="url" id="input-company-url" required placeholder="https://stripe.com" class="w-full pl-11 pr-4 py-3 bg-slate-950 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition" />
+            </div>
+            <button type="submit" id="btn-track-company" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition active:scale-95">
+              <span>Track & Analyse</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Previously Analysed Companies Table -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-building text-blue-400"></i> Tracked Companies
+          </h3>
+          <button onclick="loadCompanies()" class="text-xs text-blue-400 hover:underline flex items-center gap-1">
+            <i class="fa-solid fa-rotate-right"></i> Refresh List
+          </button>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-300">
+              <thead class="bg-slate-900 text-slate-400 text-xs uppercase font-semibold border-b border-slate-800">
+                <tr>
+                  <th class="py-3.5 px-4">Company</th>
+                  <th class="py-3.5 px-4">URL</th>
+                  <th class="py-3.5 px-4">Industry</th>
+                  <th class="py-3.5 px-4">HQ</th>
+                  <th class="py-3.5 px-4">Status</th>
+                  <th class="py-3.5 px-4 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody id="companies-list-table" class="divide-y divide-slate-800/60">
+                <!-- Skeleton Loader -->
+                <tr>
+                  <td colspan="6" class="p-8 text-center text-slate-500">
+                    <i class="fa-solid fa-spinner animate-spin text-xl mb-2"></i>
+                    <p class="text-xs">Loading companies...</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- VIEW 2: WORKFLOW & WORKSPACE -->
+    <div id="view-workflow" class="hidden space-y-6">
+      
+      <!-- Back button & Header -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-800">
+        <div class="flex items-center gap-3">
+          <button onclick="showDashboard()" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition">
+            <i class="fa-solid fa-chevron-left"></i>
+          </button>
+          <div>
+            <h2 id="wf-company-name" class="text-2xl font-bold text-white leading-tight">Company Name</h2>
+            <p id="wf-company-url" class="text-xs text-blue-400">https://example.com</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span id="wf-status-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+            Pending Profile
+          </span>
+        </div>
+      </div>
+
+      <!-- Horizontal Stepper Bar -->
+      <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 shadow-md">
+        <div class="flex items-center justify-between max-w-4xl mx-auto">
+          
+          <!-- Step 1: Profile -->
+          <div id="step-node-1" class="flex flex-col items-center gap-1 cursor-pointer" onclick="switchWorkflowStep(1)">
+            <div id="step-icon-1" class="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md">1</div>
+            <span class="text-xs font-medium text-slate-300">Profile</span>
+          </div>
+          <div id="step-line-1" class="stepper-line"></div>
+
+          <!-- Step 2: Discover -->
+          <div id="step-node-2" class="flex flex-col items-center gap-1 cursor-pointer opacity-50" onclick="switchWorkflowStep(2)">
+            <div id="step-icon-2" class="w-9 h-9 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm">2</div>
+            <span class="text-xs font-medium text-slate-400">Discover</span>
+          </div>
+          <div id="step-line-2" class="stepper-line"></div>
+
+          <!-- Step 3: Approve -->
+          <div id="step-node-3" class="flex flex-col items-center gap-1 cursor-pointer opacity-50" onclick="switchWorkflowStep(3)">
+            <div id="step-icon-3" class="w-9 h-9 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm">3</div>
+            <span class="text-xs font-medium text-slate-400">Approve</span>
+          </div>
+          <div id="step-line-3" class="stepper-line"></div>
+
+          <!-- Step 4: Collect & Analyse -->
+          <div id="step-node-4" class="flex flex-col items-center gap-1 cursor-pointer opacity-50" onclick="switchWorkflowStep(4)">
+            <div id="step-icon-4" class="w-9 h-9 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm">4</div>
+            <span class="text-xs font-medium text-slate-400">Collect & Analyse</span>
+          </div>
+          <div id="step-line-4" class="stepper-line"></div>
+
+          <!-- Step 5: Report -->
+          <div id="step-node-5" class="flex flex-col items-center gap-1 cursor-pointer opacity-50" onclick="switchWorkflowStep(5)">
+            <div id="step-icon-5" class="w-9 h-9 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm">5</div>
+            <span class="text-xs font-medium text-slate-400">Report</span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Live Job Progress Bar (Global when job active) -->
+      <div id="job-progress-banner" class="hidden bg-blue-950/60 border border-blue-800/80 p-4 rounded-xl flex flex-col gap-2 shadow-lg animate-pulse">
+        <div class="flex justify-between items-center text-xs">
+          <span id="job-banner-msg" class="font-semibold text-blue-300 flex items-center gap-2">
+            <i class="fa-solid fa-spinner animate-spin"></i> Processing job...
+          </span>
+          <span id="job-banner-step" class="text-blue-400 font-mono">Step 1 of 4</span>
+        </div>
+        <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-blue-900">
+          <div id="job-banner-bar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300" style="width: 25%"></div>
+        </div>
+      </div>
+
+
+      <!-- STEP PANEL 1: PROFILE & CHECKPOINT 1 -->
+      <div id="panel-step-1" class="space-y-6">
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-6">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-id-card text-blue-400"></i> Target Profile Extraction
+              </h3>
+              <p class="text-xs text-slate-400">Review and edit inferred business profile details before confirming Checkpoint 1.</p>
+            </div>
+            <span id="profile-checkpoint-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              Checkpoint 1 Pending
+            </span>
+          </div>
+
+          <!-- Edit Profile Form -->
+          <form onsubmit="handleSaveProfile(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Company Name</label>
+              <input type="text" id="prof-name" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Industry Label</label>
+              <input type="text" id="prof-industry" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">HQ City</label>
+              <input type="text" id="prof-city" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">HQ Country</label>
+              <input type="text" id="prof-country" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Price Band</label>
+              <input type="text" id="prof-price-band" placeholder="e.g. Freemium / Tiered" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Business Model</label>
+              <input type="text" id="prof-biz-model" placeholder="e.g. B2B SaaS" class="w-full px-3.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <div class="md:col-span-2 pt-2 flex justify-between items-center">
+              <button type="submit" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition">
+                <i class="fa-solid fa-floppy-disk mr-1"></i> Save Changes
+              </button>
+
+              <button type="button" onclick="handleConfirmProfile()" id="btn-confirm-profile" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 transition active:scale-95">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>Confirm Profile (Pass Checkpoint 1)</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+
+      <!-- STEP PANEL 2: DISCOVER COMPETITORS -->
+      <div id="panel-step-2" class="hidden space-y-6">
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-6">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-radar text-purple-400"></i> Competitor Discovery & Tier Scoring
+              </h3>
+              <p class="text-xs text-slate-400">Search web sources and directory feeds to discover potential competitors.</p>
+            </div>
+          </div>
+
+          <div class="flex flex-col items-center justify-center p-8 bg-slate-900/60 rounded-xl border border-slate-800 text-center space-y-4">
+            <div class="w-16 h-16 rounded-full bg-purple-500/10 text-purple-400 flex items-center justify-center text-2xl border border-purple-500/20">
+              <i class="fa-solid fa-magnifying-glass-location"></i>
+            </div>
+            <div class="max-w-md">
+              <h4 class="text-base font-bold text-white">Ready for Competitor Discovery</h4>
+              <p class="text-xs text-slate-400 mt-1">Profile is confirmed. Click below to start candidate competitor search and tier ranking.</p>
+            </div>
+            <button onclick="handleRunDiscovery()" id="btn-run-discovery" class="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-xl shadow-lg shadow-purple-600/30 flex items-center gap-2 transition active:scale-95">
+              <i class="fa-solid fa-rocket"></i>
+              <span>Launch Candidate Discovery</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- STEP PANEL 3: REVIEW & APPROVE (CHECKPOINT 2) -->
+      <div id="panel-step-3" class="hidden space-y-6">
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-list-check text-emerald-400"></i> Checkpoint 2: Candidate Approval
+              </h3>
+              <p class="text-xs text-slate-400">Review discovered candidates. Approve those you want to include in deep data collection.</p>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button onclick="handleApproveAll()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition">
+                <i class="fa-solid fa-check-double mr-1 text-emerald-400"></i> Approve All
+              </button>
+              <button onclick="openAddCompetitorModal()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition">
+                <i class="fa-solid fa-plus mr-1 text-blue-400"></i> Add Manually
+              </button>
+            </div>
+          </div>
+
+          <!-- Competitor Cards Grid -->
+          <div id="competitor-cards-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Candidate cards injected here -->
+          </div>
+
+          <div class="pt-4 border-t border-slate-800 flex justify-end">
+            <button onclick="handleRunCollection()" id="btn-run-collection" class="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition active:scale-95">
+              <i class="fa-solid fa-database"></i>
+              <span>Approve & Collect Data</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- STEP PANEL 4: COLLECT & ANALYSE -->
+      <div id="panel-step-4" class="hidden space-y-6">
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-6 text-center">
+          <div class="w-16 h-16 rounded-full bg-blue-500/10 text-blue-400 mx-auto flex items-center justify-center text-2xl border border-blue-500/20">
+            <i class="fa-solid fa-chart-diagram"></i>
+          </div>
+          <div class="max-w-md mx-auto">
+            <h4 class="text-lg font-bold text-white">Deep Intelligence Analysis</h4>
+            <p class="text-xs text-slate-400 mt-1">Data collection is complete. Click below to run strategic LLM analysis and generate 1v1 comparison matrices.</p>
+          </div>
+          <button onclick="handleRunAnalyse()" id="btn-run-analyse" class="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-600/30 inline-flex items-center gap-2 transition active:scale-95">
+            <i class="fa-solid fa-brain"></i>
+            <span>Run Bulk Analysis & Generate Report</span>
+          </button>
+        </div>
+      </div>
+
+
+      <!-- STEP PANEL 5: EXECUTIVE REPORT -->
+      <div id="panel-step-5" class="hidden space-y-6">
+        
+        <!-- Report Header Controls -->
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-sm font-bold text-slate-200">Executive Report Ready</span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="copyReportMarkdown()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1">
+              <i class="fa-regular fa-copy text-blue-400"></i> Copy Markdown
+            </button>
+
+            <a id="btn-export-md" href="#" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1">
+              <i class="fa-solid fa-file-arrow-down text-purple-400"></i> Download MD
+            </a>
+
+            <a id="btn-export-pdf" href="#" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1">
+              <i class="fa-solid fa-file-pdf text-red-400"></i> Download PDF
+            </a>
+
+            <a id="btn-export-pptx" href="#" target="_blank" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1">
+              <i class="fa-solid fa-file-powerpoint text-amber-400"></i> Download PPTX
+            </a>
+
+            <button onclick="handleRunAnalyse()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition flex items-center gap-1">
+              <i class="fa-solid fa-rotate-right"></i> Re-run Analysis
+            </button>
+          </div>
+        </div>
+
+        <!-- 1v1 Comparison Matrix Accordion Cards -->
+        <div class="space-y-4">
+          <h3 class="text-lg font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-table-columns text-purple-400"></i> 1v1 Strategic Comparison Matrices
+          </h3>
+
+          <div id="report-comparisons-container" class="space-y-4">
+            <!-- Comparison cards injected here -->
+          </div>
+        </div>
+
+        <!-- Raw Markdown Render Card -->
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
+          <h3 class="text-base font-bold text-slate-200 flex items-center gap-2">
+            <i class="fa-solid fa-file-lines text-blue-400"></i> Markdown Document Output
+          </h3>
+          <pre id="report-markdown-view" class="bg-slate-900 p-4 rounded-xl text-xs font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap border border-slate-800 leading-relaxed"></pre>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+
+  <!-- Modal: Add Competitor Manually -->
+  <div id="modal-add-competitor" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-plus text-blue-400"></i> Add Competitor Manually
+        </h3>
+        <button onclick="closeAddCompetitorModal()" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <form onsubmit="handleAddCompetitorSubmit(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Competitor Name *</label>
+          <input type="text" id="manual-comp-name" required placeholder="e.g. Braintree" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Website URL / Domain</label>
+          <input type="text" id="manual-comp-url" placeholder="https://braintreepayments.com" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Tier Category</label>
+          <select id="manual-comp-tier" class="w-full px-3.5 py-2 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500">
+            <option value="direct">Direct Competitor</option>
+            <option value="indirect">Indirect Competitor</option>
+            <option value="perceived">Perceived Competitor</option>
+          </select>
+        </div>
+
+        <div class="pt-2 flex justify-end gap-2">
+          <button type="button" onclick="closeAddCompetitorModal()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold">Add & Approve</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- JavaScript App Logic -->
+  <script>
+    let currentCompanyId = null;
+    let currentCompanyData = null;
+    let activeJobPollInterval = null;
+
+    // --- Startup ---
+    document.addEventListener('DOMContentLoaded', () => {
+      loadCompanies();
+    });
+
+    // --- Toast Notifications ---
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      
+      const bgColors = {
+        success: 'bg-emerald-950 border-emerald-700 text-emerald-200',
+        error: 'bg-red-950 border-red-700 text-red-200',
+        info: 'bg-blue-950 border-blue-700 text-blue-200',
+      };
+      const icons = {
+        success: 'fa-circle-check text-emerald-400',
+        error: 'fa-triangle-exclamation text-red-400',
+        info: 'fa-circle-info text-blue-400',
+      };
+
+      toast.className = `px-4 py-3 rounded-xl border shadow-xl text-xs font-medium flex items-center gap-3 transition-all duration-300 ${bgColors[type] || bgColors.info}`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type]} text-base"></i> <span>${message}</span>`;
+      
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // --- Dark/Light Mode ---
+    function toggleDarkMode() {
+      const html = document.documentElement;
+      const icon = document.getElementById('theme-icon');
+      if (html.classList.contains('dark')) {
+        html.classList.remove('dark');
+        icon.className = 'fa-solid fa-sun text-amber-400';
+      } else {
+        html.classList.add('dark');
+        icon.className = 'fa-solid fa-moon text-slate-300';
+      }
+    }
+
+    // --- Jobs Drawer ---
+    function toggleJobsDrawer() {
+      const drawer = document.getElementById('jobs-drawer');
+      drawer.classList.toggle('translate-x-full');
+    }
+
+    // --- View Navigation ---
+    function showDashboard() {
+      document.getElementById('view-dashboard').classList.remove('hidden');
+      document.getElementById('view-workflow').classList.add('hidden');
+      if (activeJobPollInterval) clearInterval(activeJobPollInterval);
+      loadCompanies();
+    }
+
+    function showWorkflow(companyId) {
+      currentCompanyId = companyId;
+      document.getElementById('view-dashboard').classList.add('hidden');
+      document.getElementById('view-workflow').classList.remove('hidden');
+      loadCompanyWorkflowData(companyId);
+    }
+
+    // --- API Calls & Handlers ---
+
+    async function loadCompanies() {
+      try {
+        const res = await fetch('/api/companies');
+        const companies = await res.json();
+        renderCompaniesTable(companies);
+      } catch (err) {
+        showToast('Failed to load companies list.', 'error');
+      }
+    }
+
+    function renderCompaniesTable(companies) {
+      const tbody = document.getElementById('companies-list-table');
+      if (!companies || companies.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="p-8 text-center text-slate-500 text-xs">
+              No companies tracked yet. Enter a website URL above to get started!
+            </td>
+          </tr>`;
+        return;
+      }
+
+      tbody.innerHTML = companies.map(c => {
+        const statusBadges = {
+          pending_profile: '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">Pending Profile</span>',
+          confirmed: '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">Confirmed</span>',
+          discovery_done: '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">Discovery Done</span>',
+          collection_done: '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Collected</span>',
+          done: '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Report Ready</span>',
+        };
+
+        const prof = c.profile || {};
+        return `
+          <tr class="hover:bg-slate-900/60 transition">
+            <td class="py-3 px-4 font-semibold text-white flex items-center gap-2">
+              <span class="w-7 h-7 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-xs">${c.name.charAt(0)}</span>
+              ${c.name}
+            </td>
+            <td class="py-3 px-4 text-xs font-mono text-blue-400">${c.url}</td>
+            <td class="py-3 px-4 text-xs text-slate-300">${prof.industry_label || 'Fintech & Software'}</td>
+            <td class="py-3 px-4 text-xs text-slate-300">${prof.hq_city ? prof.hq_city + ', ' + (prof.hq_country || '') : 'San Francisco, USA'}</td>
+            <td class="py-3 px-4">${statusBadges[c.status] || c.status}</td>
+            <td class="py-3 px-4 text-right">
+              <button onclick="showWorkflow('${c.id}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow transition">
+                Open Workspace <i class="fa-solid fa-chevron-right ml-1"></i>
+              </button>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    async function handleCreateCompany(e) {
+      e.preventDefault();
+      const urlInput = document.getElementById('input-company-url');
+      const url = urlInput.value.trim();
+      if (!url) return;
+
+      const btn = document.getElementById('btn-track-company');
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Processing...`;
+
+      try {
+        const res = await fetch('/api/companies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url })
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+          showToast(data.message, 'success');
+          urlInput.value = '';
+          showWorkflow(data.id);
+        } else {
+          showToast(data.error || 'Failed to create company.', 'error');
+        }
+      } catch (err) {
+        showToast('Network error creating company.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<span>Track & Analyse</span> <i class="fa-solid fa-arrow-right"></i>`;
+      }
+    }
+
+    async function loadCompanyWorkflowData(companyId) {
+      try {
+        const res = await fetch(`/api/companies/${companyId}`);
+        if (!res.ok) throw new Error('Failed to fetch details');
+        const data = await res.json();
+        currentCompanyData = data;
+
+        // Render header
+        document.getElementById('wf-company-name').innerText = data.name;
+        document.getElementById('wf-company-url').innerText = data.url;
+        document.getElementById('wf-status-badge').innerText = data.status.replace('_', ' ').toUpperCase();
+
+        // Populate Profile Form
+        const p = data.profile || {};
+        document.getElementById('prof-name').value = p.name || data.name || '';
+        document.getElementById('prof-industry').value = p.industry_label || '';
+        document.getElementById('prof-city').value = p.hq_city || '';
+        document.getElementById('prof-country').value = p.hq_country || '';
+        document.getElementById('prof-price-band').value = p.price_band || '';
+        document.getElementById('prof-biz-model').value = p.business_model || '';
+
+        // Auto-switch to appropriate step based on company status
+        if (data.status === 'pending_profile') switchWorkflowStep(1);
+        else if (data.status === 'confirmed') switchWorkflowStep(2);
+        else if (data.status === 'discovery_done') switchWorkflowStep(3);
+        else if (data.status === 'collection_done') switchWorkflowStep(4);
+        else if (data.status === 'done') switchWorkflowStep(5);
+
+        // Load step specific details
+        loadCompetitorsForApprove(companyId);
+        if (data.status === 'done') loadReportView(companyId);
+
+      } catch (err) {
+        showToast('Error loading company data.', 'error');
+      }
+    }
+
+    function switchWorkflowStep(stepNum) {
+      // Hide all panels
+      for (let i = 1; i <= 5; i++) {
+        document.getElementById(`panel-step-${i}`).classList.add('hidden');
+        const node = document.getElementById(`step-node-${i}`);
+        const icon = document.getElementById(`step-icon-${i}`);
+        if (i < stepNum) {
+          node.classList.remove('opacity-50');
+          icon.className = 'w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-md';
+          icon.innerHTML = '<i class="fa-solid fa-check"></i>';
+        } else if (i === stepNum) {
+          node.classList.remove('opacity-50');
+          icon.className = 'w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md ring-4 ring-blue-500/20';
+          icon.innerText = i;
+        } else {
+          node.classList.add('opacity-50');
+          icon.className = 'w-9 h-9 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm';
+          icon.innerText = i;
+        }
+      }
+
+      // Show selected panel
+      document.getElementById(`panel-step-${stepNum}`).classList.remove('hidden');
+
+      if (stepNum === 3 && currentCompanyId) loadCompetitorsForApprove(currentCompanyId);
+      if (stepNum === 5 && currentCompanyId) loadReportView(currentCompanyId);
+    }
+
+    async function handleSaveProfile(e) {
+      e.preventDefault();
+      try {
+        const body = {
+          name: document.getElementById('prof-name').value,
+          industry_label: document.getElementById('prof-industry').value,
+          hq_city: document.getElementById('prof-city').value,
+          hq_country: document.getElementById('prof-country').value,
+          price_band: document.getElementById('prof-price-band').value,
+          business_model: document.getElementById('prof-biz-model').value,
+        };
+
+        const res = await fetch(`/api/companies/${currentCompanyId}/profile`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (res.ok) showToast('Profile saved successfully.', 'success');
+        else showToast('Failed to save profile.', 'error');
+      } catch (err) {
+        showToast('Error saving profile.', 'error');
+      }
+    }
+
+    async function handleConfirmProfile() {
+      try {
+        const res = await fetch(`/api/companies/${currentCompanyId}/confirm`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message, 'success');
+          loadCompanyWorkflowData(currentCompanyId);
+          switchWorkflowStep(2);
+        } else {
+          showToast(data.error || 'Failed to confirm profile.', 'error');
+        }
+      } catch (err) {
+        showToast('Error confirming profile.', 'error');
+      }
+    }
+
+    async function handleRunDiscovery() {
+      const btn = document.getElementById('btn-run-discovery');
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Searching...`;
+
+      try {
+        const res = await fetch(`/api/companies/${currentCompanyId}/discover`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message, 'success');
+          loadCompanyWorkflowData(currentCompanyId);
+          switchWorkflowStep(3);
+        } else {
+          showToast(data.error || 'Failed to run discovery.', 'error');
+        }
+      } catch (err) {
+        showToast('Error running discovery.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fa-solid fa-rocket"></i> Launch Candidate Discovery`;
+      }
+    }
+
+    async function loadCompetitorsForApprove(companyId) {
+      try {
+        const res = await fetch(`/api/companies/${companyId}/competitors`);
+        const competitors = await res.json();
+        renderCompetitorCards(competitors);
+      } catch (err) {
+        showToast('Error loading competitors list.', 'error');
+      }
+    }
+
+    function renderCompetitorCards(competitors) {
+      const container = document.getElementById('competitor-cards-grid');
+      if (!competitors || competitors.length === 0) {
+        container.innerHTML = `<p class="col-span-2 text-center text-slate-500 py-6 text-xs">No candidate competitors discovered yet. Run discovery above.</p>`;
+        return;
+      }
+
+      container.innerHTML = competitors.map(c => `
+        <div class="bg-slate-900 p-4 rounded-xl border ${c.approved ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-slate-800'} space-y-3 transition">
+          <div class="flex justify-between items-start">
+            <div>
+              <h4 class="font-bold text-white text-base">${c.name}</h4>
+              <a href="${c.website || 'https://' + c.domain}" target="_blank" class="text-xs text-blue-400 hover:underline font-mono">${c.domain || 'N/A'}</a>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.tier === 'direct' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}">
+              ${c.tier || 'direct'}
+            </span>
+          </div>
+
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs text-slate-400">
+              <span>Similarity Score</span>
+              <span class="font-bold text-slate-200">${(c.score * 100).toFixed(0)}%</span>
+            </div>
+            <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+              <div class="bg-gradient-to-r from-blue-500 to-purple-500 h-1.5 rounded-full" style="width: ${c.score * 100}%"></div>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+            <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold ${c.approved ? 'text-emerald-400' : 'text-slate-400'}">
+              <input type="checkbox" ${c.approved ? 'checked' : ''} onchange="toggleCompetitorApproval('${c.id}', this.checked)" class="w-4 h-4 rounded border-slate-700 text-emerald-600 focus:ring-0 bg-slate-950" />
+              <span>${c.approved ? 'Approved for Collection' : 'Click to Approve'}</span>
+            </label>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function toggleCompetitorApproval(comp_id, approved) {
+      try {
+        const res = await fetch(`/api/competitors/${comp_id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: approved })
+        });
+        if (res.ok) {
+          showToast(`Competitor approval updated.`, 'success');
+          loadCompetitorsForApprove(currentCompanyId);
+        }
+      } catch (err) {
+        showToast('Failed to update competitor approval.', 'error');
+      }
+    }
+
+    async function handleApproveAll() {
+      try {
+        const res = await fetch(`/api/companies/${currentCompanyId}/competitors`);
+        const competitors = await res.json();
+        for (const c of competitors) {
+          await fetch(`/api/competitors/${c.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ approved: true })
+          });
+        }
+        showToast('All competitors approved.', 'success');
+        loadCompetitorsForApprove(currentCompanyId);
+      } catch (err) {
+        showToast('Failed to approve all competitors.', 'error');
+      }
+    }
+
+    function openAddCompetitorModal() {
+      document.getElementById('modal-add-competitor').classList.remove('hidden');
+    }
+    function closeAddCompetitorModal() {
+      document.getElementById('modal-add-competitor').classList.add('hidden');
+    }
+
+    async function handleAddCompetitorSubmit(e) {
+      e.preventDefault();
+      const name = document.getElementById('manual-comp-name').value;
+      const url = document.getElementById('manual-comp-url').value;
+      const tier = document.getElementById('manual-comp-tier').value;
+
+      try {
+        const res = await fetch(`/api/companies/${currentCompanyId}/competitors`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, url: url, tier: tier, approved: true })
+        });
+        if (res.ok) {
+          showToast(`Added '${name}'`, 'success');
+          closeAddCompetitorModal();
+          loadCompetitorsForApprove(currentCompanyId);
+        } else {
+          showToast('Failed to add competitor.', 'error');
+        }
+      } catch (err) {
+        showToast('Error adding competitor.', 'error');
+      }
+    }
+
+    async function handleRunCollection() {
+      const btn = document.getElementById('btn-run-collection');
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Collecting...`;
+
+      try {
+        const res = await fetch(`/api/companies/${currentCompanyId}/collect`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message, 'success');
+          loadCompanyWorkflowData(currentCompanyId);
+          switchWorkflowStep(4);
+        } else {
+          showToast(data.error || 'Failed to run collection.', 'error');
+        }
+      } catch (err) {
+        showToast('Error running collection.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fa-solid fa-database"></i> Approve & Collect Data`;
+      }
+    }
+
+    async function handleRunAnalyse() {
+      const btn = document.getElementById('btn-run-analyse');
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Running Analysis...`;
+
+      try {
+        const res = await fetch(`/api/companies/${currentCompanyId}/analyse`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message, 'success');
+          loadCompanyWorkflowData(currentCompanyId);
+          switchWorkflowStep(5);
+        } else {
+          showToast(data.error || 'Failed to run analysis.', 'error');
+        }
+      } catch (err) {
+        showToast('Error running analysis.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fa-solid fa-brain"></i> Run Bulk Analysis & Generate Report`;
+      }
+    }
+
+    async function loadReportView(companyId) {
+      try {
+        const res = await fetch(`/api/companies/${companyId}/report`);
+        if (!res.ok) return;
+        const report = await res.json();
+
+        // Configure Export Links
+        document.getElementById('btn-export-md').href = `/api/companies/${companyId}/report/export?format=md`;
+        document.getElementById('btn-export-pdf').href = `/api/companies/${companyId}/report/export?format=pdf`;
+        document.getElementById('btn-export-pptx').href = `/api/companies/${companyId}/report/export?format=pptx`;
+
+        // Render Markdown snippet
+        document.getElementById('report-markdown-view').innerText = report.markdown || '';
+
+        // Render 1v1 Comparison Cards
+        renderComparisonCards(report.comparisons);
+      } catch (err) {
+        showToast('Error loading report view.', 'error');
+      }
+    }
+
+    function renderComparisonCards(comparisons) {
+      const container = document.getElementById('report-comparisons-container');
+      if (!comparisons || comparisons.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-500 italic p-4">No 1v1 comparisons generated yet.</p>`;
+        return;
+      }
+
+      container.innerHTML = comparisons.map(c => `
+        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
+          
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <h4 class="text-base font-bold text-white flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+              Stripe vs ${c.competitor_name}
+            </h4>
+
+            <div class="flex items-center gap-2">
+              ${c.is_generic ? '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Generic Comparison</span>' : '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i class="fa-solid fa-certificate mr-1"></i> Tailored Analysis</span>'}
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.threat_level === 'High' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}">
+                Threat: ${c.threat_level}
+              </span>
+            </div>
+          </div>
+
+          <p class="text-xs text-slate-300 italic">${c.summary}</p>
+
+          <!-- 4 Columns Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            
+            <!-- Our Advantages -->
+            <div class="bg-slate-900 p-4 rounded-xl border border-emerald-900/40 space-y-2">
+              <h5 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-check"></i> Our Advantages
+              </h5>
+              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                ${c.our_advantages.map(a => `<li>${a}</li>`).join('')}
+              </ul>
+            </div>
+
+            <!-- Our Disadvantages -->
+            <div class="bg-slate-900 p-4 rounded-xl border border-red-900/40 space-y-2">
+              <h5 class="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-minus"></i> Our Disadvantages
+              </h5>
+              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                ${c.our_disadvantages.map(a => `<li>${a}</li>`).join('')}
+              </ul>
+            </div>
+
+            <!-- Their Advantages -->
+            <div class="bg-slate-900 p-4 rounded-xl border border-blue-900/40 space-y-2">
+              <h5 class="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-star"></i> Their Advantages
+              </h5>
+              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                ${c.their_advantages.map(a => `<li>${a}</li>`).join('')}
+              </ul>
+            </div>
+
+            <!-- Their Disadvantages -->
+            <div class="bg-slate-900 p-4 rounded-xl border border-purple-900/40 space-y-2">
+              <h5 class="text-xs font-bold text-purple-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-shield-halved"></i> Their Disadvantages
+              </h5>
+              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                ${c.their_disadvantages.map(a => `<li>${a}</li>`).join('')}
+              </ul>
+            </div>
+
+          </div>
+
+          <!-- Key Differentiators Chips -->
+          <div class="pt-3 border-t border-slate-800 flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-semibold text-slate-400">Key Differentiators:</span>
+            ${c.key_differentiators.map(d => `<span class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-900 text-slate-300 border border-slate-800">${d}</span>`).join('')}
+          </div>
+
+        </div>
+      `).join('');
+    }
+
+    function copyReportMarkdown() {
+      const text = document.getElementById('report-markdown-view').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Report Markdown copied to clipboard!', 'success');
+      });
+    }
+  </script>
+</body>
+</html>

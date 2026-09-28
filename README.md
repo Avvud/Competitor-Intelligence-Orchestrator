@@ -24,9 +24,8 @@ cd competitor-intel-orchestrator
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install core and dev dependencies
-uv pip install -e .
-uv pip install -e .[dev,dashboard]
+# Install dependencies
+uv sync
 ```
 
 ### 2. Configure Environment Variables
@@ -45,22 +44,39 @@ DB_URL=sqlite:///data/competitor_intel.db
 
 ## 🏃 Running the Application
 
-### 1. Streamlit Dashboard
+### 1. Browser-Based Web UI (FastAPI SPA)
+
+Launch the non-technical browser web application with a single command:
+
+```bash
+python run_ui.py
+# or: uv run python run_ui.py
+```
+Open **http://localhost:8000** in your web browser.
+
+**Features:**
+- **5-Step Visual Pipeline Stepper**: Company Intake → Profile Review → Candidate Discovery → Data Collection & Analysis → Report & Matrix.
+- **Idempotent Operations & Ready Gating**: Enforces human-in-the-loop profile confirmation and candidate competitor approval.
+- **Dynamic 1v1 Comparison Matrices**: Side-by-side matrices (Core Offering, Market Position & Pricing, Key Strengths, Vulnerabilities & Risks) with AI confidence ratings and generic fallback indicators.
+- **Multi-Format Downloads**: Download report files in Markdown (`.md`), PDF (`.pdf`), PowerPoint (`.pptx`), or JSON (`.json`).
+- **Dark Mode SPA**: Built with glassmorphism UI, real-time background job polling, toast alerts, and activity drawer.
+
+### 2. Streamlit Dashboard
 
 ```bash
 uv run streamlit run src/ui/app.py
 ```
 
-### 2. MCP Server (for Hermes integration)
+### 3. MCP Server (for Hermes integration)
 
 ```bash
 uv run python -m src.mcp.server
 ```
 
-### 3. Running Unit Tests
+### 4. Running Unit Tests
 
 ```bash
-uv run pytest -v
+uv run pytest tests/
 ```
 
 ---
