@@ -44,7 +44,6 @@
     .stepper-line.active {
       background-color: #3B82F6;
     }
-    /* Toast transition */
     #toast-container {
       position: fixed;
       bottom: 1.5rem;
@@ -55,11 +54,23 @@
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col">
 
+  <!-- Top Demo Banner (Hidden by default) -->
+  <div id="demo-mode-banner" class="hidden bg-amber-500/20 border-b border-amber-500/30 text-amber-300 text-xs font-semibold py-1.5 px-4 text-center flex items-center justify-center gap-2">
+    <i class="fa-solid fa-flask"></i>
+    <span>DEMO MODE ACTIVE — Using simulated responses for external search & LLM connectors. Set DEMO_MODE=false for live operations.</span>
+  </div>
+
+  <!-- Disconnected Banner (Hidden by default) -->
+  <div id="disconnected-banner" class="hidden bg-red-600 border-b border-red-700 text-white text-xs font-bold py-2 px-4 text-center flex items-center justify-center gap-2 animate-bounce">
+    <i class="fa-solid fa-triangle-exclamation text-base"></i>
+    <span>SERVER DISCONNECTED — Unable to reach API backend at http://127.0.0.1:8000. Retrying...</span>
+  </div>
+
   <!-- Toast Notification Container -->
   <div id="toast-container" class="flex flex-col gap-2"></div>
 
   <!-- Navbar -->
-  <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
+  <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-40">
     <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-3 cursor-pointer" onclick="showDashboard()">
         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white text-xl font-bold shadow-lg shadow-blue-500/20">
@@ -72,6 +83,12 @@
       </div>
 
       <div class="flex items-center gap-3">
+        <!-- Health / Connection status pill -->
+        <div id="connection-status-pill" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>Connected</span>
+        </div>
+
         <button onclick="toggleJobsDrawer()" class="relative px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm flex items-center gap-2 border border-slate-700 transition">
           <i class="fa-solid fa-list-check text-blue-400"></i>
           <span>Activity / Jobs</span>
@@ -232,15 +249,18 @@
       </div>
 
       <!-- Live Job Progress Bar (Global when job active) -->
-      <div id="job-progress-banner" class="hidden bg-blue-950/60 border border-blue-800/80 p-4 rounded-xl flex flex-col gap-2 shadow-lg animate-pulse">
+      <div id="job-progress-banner" class="hidden bg-blue-950/80 border border-blue-700/80 p-4 rounded-xl flex flex-col gap-2 shadow-lg">
         <div class="flex justify-between items-center text-xs">
           <span id="job-banner-msg" class="font-semibold text-blue-300 flex items-center gap-2">
             <i class="fa-solid fa-spinner animate-spin"></i> Processing job...
           </span>
-          <span id="job-banner-step" class="text-blue-400 font-mono">Step 1 of 4</span>
+          <span id="job-banner-step" class="text-blue-400 font-mono">Status: Running</span>
         </div>
-        <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-blue-900">
-          <div id="job-banner-bar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300" style="width: 25%"></div>
+        <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-blue-900">
+          <div id="job-banner-bar" class="bg-gradient-to-r from-blue-500 to-purple-500 h-2.5 rounded-full transition-all duration-300" style="width: 25%"></div>
+        </div>
+        <div id="job-banner-actions" class="hidden pt-1 flex justify-end gap-2">
+          <!-- Dynamically populated on failure -->
         </div>
       </div>
 
@@ -496,10 +516,89 @@
     let currentCompanyData = null;
     let activeJobPollInterval = null;
 
+    // Helper: Anti-XSS HTML escape
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Helper: Safe URL sanitizer for href
+    function sanitizeUrl(url) {
+      if (!url) return '#';
+      const s = String(url).trim();
+      if (s.startsWith('http://') || s.startsWith('https://')) return escapeHtml(s);
+      if (s.startsWith('www.')) return escapeHtml('https://' + s);
+      return '#';
+    }
+
+    // Helper: Centralized Fetch Wrapper with clean error handling & connection check
+    async function apiFetch(url, options = {}) {
+      try {
+        const res = await fetch(url, options);
+        document.getElementById('disconnected-banner').classList.add('hidden');
+        updateConnectionPill(true);
+
+        if (!res.ok) {
+          let errorMsg = `HTTP Error ${res.status}`;
+          try {
+            const data = await res.json();
+            if (data && data.error) errorMsg = data.error;
+            else if (data && data.detail) errorMsg = data.detail;
+          } catch (e) {}
+          const err = new Error(errorMsg);
+          err.status = res.status;
+          throw err;
+        }
+        return await res.json();
+      } catch (err) {
+        if (err.name === 'TypeError' && err.message.includes('fetch')) {
+          document.getElementById('disconnected-banner').classList.remove('hidden');
+          updateConnectionPill(false);
+          showToast('Disconnected from backend API.', 'error');
+        }
+        throw err;
+      }
+    }
+
+    function updateConnectionPill(connected) {
+      const pill = document.getElementById('connection-status-pill');
+      if (connected) {
+        pill.className = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-emerald-950/60 text-emerald-400 border border-emerald-800';
+        pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Connected';
+      } else {
+        pill.className = 'flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-red-950/60 text-red-400 border border-red-800';
+        pill.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span> Offline';
+      }
+    }
+
     // --- Startup ---
     document.addEventListener('DOMContentLoaded', () => {
+      checkHealth();
       loadCompanies();
+      loadJobsDrawer();
+      setInterval(checkHealth, 15000);
     });
+
+    async function checkHealth() {
+      try {
+        const health = await apiFetch('/api/health');
+        if (health.demo_mode) {
+          document.getElementById('demo-mode-banner').classList.remove('hidden');
+        } else {
+          document.getElementById('demo-mode-banner').classList.add('hidden');
+        }
+        if (health.active_jobs_count > 0) {
+          document.getElementById('active-jobs-badge').classList.remove('hidden');
+        } else {
+          document.getElementById('active-jobs-badge').classList.add('hidden');
+        }
+      } catch (e) {}
+    }
 
     // --- Toast Notifications ---
     function showToast(message, type = 'info') {
@@ -518,7 +617,7 @@
       };
 
       toast.className = `px-4 py-3 rounded-xl border shadow-xl text-xs font-medium flex items-center gap-3 transition-all duration-300 ${bgColors[type] || bgColors.info}`;
-      toast.innerHTML = `<i class="fa-solid ${icons[type]} text-base"></i> <span>${message}</span>`;
+      toast.innerHTML = `<i class="fa-solid ${icons[type]} text-base"></i> <span>${escapeHtml(message)}</span>`;
       
       container.appendChild(toast);
       setTimeout(() => {
@@ -544,6 +643,49 @@
     function toggleJobsDrawer() {
       const drawer = document.getElementById('jobs-drawer');
       drawer.classList.toggle('translate-x-full');
+      if (!drawer.classList.contains('translate-x-full')) {
+        loadJobsDrawer();
+      }
+    }
+
+    async function loadJobsDrawer() {
+      try {
+        const jobs = await apiFetch('/api/jobs');
+        const container = document.getElementById('jobs-drawer-content');
+        if (!jobs || jobs.length === 0) {
+          container.innerHTML = '<p class="text-xs text-slate-500 italic">No recent jobs logged.</p>';
+          return;
+        }
+        
+        let hasActive = false;
+        container.innerHTML = jobs.map(j => {
+          if (j.status === 'pending' || j.status === 'running') hasActive = true;
+          const statusColors = {
+            completed: 'text-emerald-400 bg-emerald-950/40 border-emerald-800',
+            failed: 'text-red-400 bg-red-950/40 border-red-800',
+            running: 'text-blue-400 bg-blue-950/40 border-blue-800 animate-pulse',
+            pending: 'text-amber-400 bg-amber-950/40 border-amber-800',
+          };
+          const stepMsg = j.progress ? (j.progress.message || j.progress.step || j.status) : j.status;
+          return `
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-1">
+              <div class="flex justify-between items-center">
+                <span class="font-bold text-white uppercase">${escapeHtml(j.job_type.replace('_', ' '))}</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-semibold border ${statusColors[j.status] || 'text-slate-400'}">${escapeHtml(j.status)}</span>
+              </div>
+              <p class="text-slate-400 text-[11px]">${escapeHtml(stepMsg)}</p>
+              ${j.error ? `<p class="text-red-400 text-[10px] mt-1">Error: ${escapeHtml(j.error)}</p>` : ''}
+              <div class="text-[9px] text-slate-600 text-right">${escapeHtml(j.created_at.slice(11, 19))}</div>
+            </div>
+          `;
+        }).join('');
+
+        if (hasActive) {
+          document.getElementById('active-jobs-badge').classList.remove('hidden');
+        } else {
+          document.getElementById('active-jobs-badge').classList.add('hidden');
+        }
+      } catch (e) {}
     }
 
     // --- View Navigation ---
@@ -561,12 +703,83 @@
       loadCompanyWorkflowData(companyId);
     }
 
-    // --- API Calls & Handlers ---
+    // --- 2-Second Background Job Polling ---
+    function startJobPolling(jobId, jobType, onComplete, onError) {
+      if (activeJobPollInterval) clearInterval(activeJobPollInterval);
+      
+      const banner = document.getElementById('job-progress-banner');
+      const msgElem = document.getElementById('job-banner-msg');
+      const stepElem = document.getElementById('job-banner-step');
+      const barElem = document.getElementById('job-banner-bar');
+      const actionsElem = document.getElementById('job-banner-actions');
+      
+      banner.classList.remove('hidden');
+      actionsElem.classList.add('hidden');
+      actionsElem.innerHTML = '';
+      barElem.style.width = '15%';
+      msgElem.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Running ${escapeHtml(jobType.replace('_', ' '))}...`;
 
+      activeJobPollInterval = setInterval(async () => {
+        try {
+          const job = await apiFetch(`/api/jobs/${jobId}`);
+          loadJobsDrawer();
+
+          if (job.status === 'running' || job.status === 'pending') {
+            const prog = job.progress || {};
+            const pct = prog.percent || (job.status === 'running' ? 50 : 20);
+            barElem.style.width = `${pct}%`;
+            stepElem.innerText = prog.step ? `Step: ${prog.step}` : `Status: ${job.status}`;
+            if (prog.message) {
+              msgElem.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> ${escapeHtml(prog.message)}`;
+            }
+          } else if (job.status === 'completed') {
+            clearInterval(activeJobPollInterval);
+            barElem.style.width = '100%';
+            msgElem.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> ${escapeHtml(jobType.replace('_', ' '))} completed!`;
+            showToast(`${jobType.replace('_', ' ')} completed successfully.`, 'success');
+            setTimeout(() => banner.classList.add('hidden'), 2000);
+            if (onComplete) onComplete(job);
+          } else if (job.status === 'failed') {
+            clearInterval(activeJobPollInterval);
+            barElem.style.width = '100%';
+            barElem.className = 'bg-red-500 h-2.5 rounded-full';
+            msgElem.innerHTML = `<i class="fa-solid fa-circle-xmark text-red-400"></i> ${escapeHtml(jobType.replace('_', ' '))} failed: ${escapeHtml(job.error || 'Unknown error')}`;
+            stepElem.innerText = 'FAILED';
+            showToast(`Job failed: ${job.error || 'Unknown error'}`, 'error');
+
+            actionsElem.classList.remove('hidden');
+            actionsElem.innerHTML = `
+              <button onclick="retryJobStep('${jobType}')" class="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold text-xs rounded-lg flex items-center gap-1 shadow transition">
+                <i class="fa-solid fa-rotate-right"></i> Retry Step
+              </button>
+            `;
+            if (onError) onError(job.error);
+          }
+        } catch (err) {
+          // If polling fails temporarily, continue polling
+        }
+      }, 2000);
+    }
+
+    function retryJobStep(jobType) {
+      document.getElementById('job-progress-banner').classList.add('hidden');
+      if (jobType === 'profile_extraction' || jobType === 'confirm_profile') {
+        handleConfirmProfile();
+      } else if (jobType === 'discovery') {
+        handleRunDiscovery();
+      } else if (jobType === 'collection') {
+        handleRunCollection();
+      } else if (jobType === 'analysis') {
+        handleRunAnalyse();
+      } else {
+        loadCompanyWorkflowData(currentCompanyId);
+      }
+    }
+
+    // --- Dashboard logic ---
     async function loadCompanies() {
       try {
-        const res = await fetch('/api/companies');
-        const companies = await res.json();
+        const companies = await apiFetch('/api/companies');
         renderCompaniesTable(companies);
       } catch (err) {
         showToast('Failed to load companies list.', 'error');
@@ -595,16 +808,20 @@
         };
 
         const prof = c.profile || {};
+        const safeName = escapeHtml(c.name || 'Company');
+        const safeUrl = sanitizeUrl(c.url);
         return `
           <tr class="hover:bg-slate-900/60 transition">
             <td class="py-3 px-4 font-semibold text-white flex items-center gap-2">
-              <span class="w-7 h-7 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-xs">${c.name.charAt(0)}</span>
-              ${c.name}
+              <span class="w-7 h-7 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-xs">${safeName.charAt(0)}</span>
+              ${safeName}
             </td>
-            <td class="py-3 px-4 text-xs font-mono text-blue-400">${c.url}</td>
-            <td class="py-3 px-4 text-xs text-slate-300">${prof.industry_label || 'Fintech & Software'}</td>
-            <td class="py-3 px-4 text-xs text-slate-300">${prof.hq_city ? prof.hq_city + ', ' + (prof.hq_country || '') : 'San Francisco, USA'}</td>
-            <td class="py-3 px-4">${statusBadges[c.status] || c.status}</td>
+            <td class="py-3 px-4 text-xs font-mono text-blue-400">
+              <a href="${safeUrl}" target="_blank" class="hover:underline">${escapeHtml(c.url)}</a>
+            </td>
+            <td class="py-3 px-4 text-xs text-slate-300">${escapeHtml(prof.industry_label || 'Software / Tech')}</td>
+            <td class="py-3 px-4 text-xs text-slate-300">${prof.hq_city ? escapeHtml(prof.hq_city) + ', ' + escapeHtml(prof.hq_country || '') : 'N/A'}</td>
+            <td class="py-3 px-4">${statusBadges[c.status] || escapeHtml(c.status)}</td>
             <td class="py-3 px-4 text-right">
               <button onclick="showWorkflow('${c.id}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow transition">
                 Open Workspace <i class="fa-solid fa-chevron-right ml-1"></i>
@@ -625,22 +842,23 @@
       btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Processing...`;
 
       try {
-        const res = await fetch('/api/companies', {
+        const data = await apiFetch('/api/companies', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: url })
         });
-        const data = await res.json();
-        
-        if (res.ok) {
-          showToast(data.message, 'success');
-          urlInput.value = '';
-          showWorkflow(data.id);
-        } else {
-          showToast(data.error || 'Failed to create company.', 'error');
+
+        showToast(data.message || 'Company pipeline initialized.', 'success');
+        urlInput.value = '';
+        showWorkflow(data.id);
+
+        if (data.job_id) {
+          startJobPolling(data.job_id, 'profile_extraction', () => {
+            loadCompanyWorkflowData(data.id);
+          });
         }
       } catch (err) {
-        showToast('Network error creating company.', 'error');
+        showToast(err.message || 'Failed to create company.', 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<span>Track & Analyse</span> <i class="fa-solid fa-arrow-right"></i>`;
@@ -649,9 +867,7 @@
 
     async function loadCompanyWorkflowData(companyId) {
       try {
-        const res = await fetch(`/api/companies/${companyId}`);
-        if (!res.ok) throw new Error('Failed to fetch details');
-        const data = await res.json();
+        const data = await apiFetch(`/api/companies/${companyId}`);
         currentCompanyData = data;
 
         // Render header
@@ -668,6 +884,13 @@
         document.getElementById('prof-price-band').value = p.price_band || '';
         document.getElementById('prof-biz-model').value = p.business_model || '';
 
+        // If there's an active running/pending job, resume polling!
+        if (data.active_job && (data.active_job.status === 'pending' || data.active_job.status === 'running')) {
+          startJobPolling(data.active_job.id, data.active_job.job_type, () => {
+            loadCompanyWorkflowData(companyId);
+          });
+        }
+
         // Auto-switch to appropriate step based on company status
         if (data.status === 'pending_profile') switchWorkflowStep(1);
         else if (data.status === 'confirmed') switchWorkflowStep(2);
@@ -680,12 +903,11 @@
         if (data.status === 'done') loadReportView(companyId);
 
       } catch (err) {
-        showToast('Error loading company data.', 'error');
+        showToast(err.message || 'Error loading company data.', 'error');
       }
     }
 
     function switchWorkflowStep(stepNum) {
-      // Hide all panels
       for (let i = 1; i <= 5; i++) {
         document.getElementById(`panel-step-${i}`).classList.add('hidden');
         const node = document.getElementById(`step-node-${i}`);
@@ -705,7 +927,6 @@
         }
       }
 
-      // Show selected panel
       document.getElementById(`panel-step-${stepNum}`).classList.remove('hidden');
 
       if (stepNum === 3 && currentCompanyId) loadCompetitorsForApprove(currentCompanyId);
@@ -724,51 +945,47 @@
           business_model: document.getElementById('prof-biz-model').value,
         };
 
-        const res = await fetch(`/api/companies/${currentCompanyId}/profile`, {
+        await apiFetch(`/api/companies/${currentCompanyId}/profile`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
-        if (res.ok) showToast('Profile saved successfully.', 'success');
-        else showToast('Failed to save profile.', 'error');
+        showToast('Profile saved successfully.', 'success');
       } catch (err) {
-        showToast('Error saving profile.', 'error');
+        showToast(err.message || 'Error saving profile.', 'error');
       }
     }
 
     async function handleConfirmProfile() {
       try {
-        const res = await fetch(`/api/companies/${currentCompanyId}/confirm`, { method: 'POST' });
-        const data = await res.json();
-        if (res.ok) {
-          showToast(data.message, 'success');
-          loadCompanyWorkflowData(currentCompanyId);
-          switchWorkflowStep(2);
-        } else {
-          showToast(data.error || 'Failed to confirm profile.', 'error');
-        }
+        const data = await apiFetch(`/api/companies/${currentCompanyId}/confirm`, { method: 'POST' });
+        showToast(data.message, 'success');
+        loadCompanyWorkflowData(currentCompanyId);
+        switchWorkflowStep(2);
       } catch (err) {
-        showToast('Error confirming profile.', 'error');
+        showToast(err.message || 'Failed to confirm profile.', 'error');
       }
     }
 
     async function handleRunDiscovery() {
       const btn = document.getElementById('btn-run-discovery');
       btn.disabled = true;
-      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Searching...`;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Launching...`;
 
       try {
-        const res = await fetch(`/api/companies/${currentCompanyId}/discover`, { method: 'POST' });
-        const data = await res.json();
-        if (res.ok) {
-          showToast(data.message, 'success');
+        const data = await apiFetch(`/api/companies/${currentCompanyId}/discover`, { method: 'POST' });
+        showToast(data.message, 'success');
+        if (data.job_id) {
+          startJobPolling(data.job_id, 'discovery', () => {
+            loadCompanyWorkflowData(currentCompanyId);
+            switchWorkflowStep(3);
+          });
+        } else {
           loadCompanyWorkflowData(currentCompanyId);
           switchWorkflowStep(3);
-        } else {
-          showToast(data.error || 'Failed to run discovery.', 'error');
         }
       } catch (err) {
-        showToast('Error running discovery.', 'error');
+        showToast(err.message || 'Failed to run discovery.', 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i class="fa-solid fa-rocket"></i> Launch Candidate Discovery`;
@@ -777,8 +994,7 @@
 
     async function loadCompetitorsForApprove(companyId) {
       try {
-        const res = await fetch(`/api/companies/${companyId}/competitors`);
-        const competitors = await res.json();
+        const competitors = await apiFetch(`/api/companies/${companyId}/competitors`);
         renderCompetitorCards(competitors);
       } catch (err) {
         showToast('Error loading competitors list.', 'error');
@@ -792,49 +1008,55 @@
         return;
       }
 
-      container.innerHTML = competitors.map(c => `
-        <div class="bg-slate-900 p-4 rounded-xl border ${c.approved ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-slate-800'} space-y-3 transition">
-          <div class="flex justify-between items-start">
-            <div>
-              <h4 class="font-bold text-white text-base">${c.name}</h4>
-              <a href="${c.website || 'https://' + c.domain}" target="_blank" class="text-xs text-blue-400 hover:underline font-mono">${c.domain || 'N/A'}</a>
-            </div>
-            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.tier === 'direct' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}">
-              ${c.tier || 'direct'}
-            </span>
-          </div>
+      container.innerHTML = competitors.map(c => {
+        const safeName = escapeHtml(c.name);
+        const safeDomain = escapeHtml(c.domain || 'N/A');
+        const safeUrl = sanitizeUrl(c.website || (c.domain ? 'https://' + c.domain : ''));
+        const safeTier = escapeHtml(c.tier || 'direct');
+        const scorePct = (c.score * 100).toFixed(0);
 
-          <div class="space-y-1">
-            <div class="flex justify-between text-xs text-slate-400">
-              <span>Similarity Score</span>
-              <span class="font-bold text-slate-200">${(c.score * 100).toFixed(0)}%</span>
+        return `
+          <div class="bg-slate-900 p-4 rounded-xl border ${c.approved ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-slate-800'} space-y-3 transition">
+            <div class="flex justify-between items-start">
+              <div>
+                <h4 class="font-bold text-white text-base">${safeName}</h4>
+                <a href="${safeUrl}" target="_blank" class="text-xs text-blue-400 hover:underline font-mono">${safeDomain}</a>
+              </div>
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.tier === 'direct' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}">
+                ${safeTier}
+              </span>
             </div>
-            <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
-              <div class="bg-gradient-to-r from-blue-500 to-purple-500 h-1.5 rounded-full" style="width: ${c.score * 100}%"></div>
-            </div>
-          </div>
 
-          <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
-            <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold ${c.approved ? 'text-emerald-400' : 'text-slate-400'}">
-              <input type="checkbox" ${c.approved ? 'checked' : ''} onchange="toggleCompetitorApproval('${c.id}', this.checked)" class="w-4 h-4 rounded border-slate-700 text-emerald-600 focus:ring-0 bg-slate-950" />
-              <span>${c.approved ? 'Approved for Collection' : 'Click to Approve'}</span>
-            </label>
+            <div class="space-y-1">
+              <div class="flex justify-between text-xs text-slate-400">
+                <span>Similarity Score</span>
+                <span class="font-bold text-slate-200">${scorePct}%</span>
+              </div>
+              <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                <div class="bg-gradient-to-r from-blue-500 to-purple-500 h-1.5 rounded-full" style="width: ${scorePct}%"></div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+              <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold ${c.approved ? 'text-emerald-400' : 'text-slate-400'}">
+                <input type="checkbox" ${c.approved ? 'checked' : ''} onchange="toggleCompetitorApproval('${c.id}', this.checked)" class="w-4 h-4 rounded border-slate-700 text-emerald-600 focus:ring-0 bg-slate-950" />
+                <span>${c.approved ? 'Approved for Collection' : 'Click to Approve'}</span>
+              </label>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     async function toggleCompetitorApproval(comp_id, approved) {
       try {
-        const res = await fetch(`/api/competitors/${comp_id}`, {
+        await apiFetch(`/api/competitors/${comp_id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ approved: approved })
         });
-        if (res.ok) {
-          showToast(`Competitor approval updated.`, 'success');
-          loadCompetitorsForApprove(currentCompanyId);
-        }
+        showToast('Competitor approval updated.', 'success');
+        loadCompetitorsForApprove(currentCompanyId);
       } catch (err) {
         showToast('Failed to update competitor approval.', 'error');
       }
@@ -842,10 +1064,9 @@
 
     async function handleApproveAll() {
       try {
-        const res = await fetch(`/api/companies/${currentCompanyId}/competitors`);
-        const competitors = await res.json();
+        const competitors = await apiFetch(`/api/companies/${currentCompanyId}/competitors`);
         for (const c of competitors) {
-          await fetch(`/api/competitors/${c.id}`, {
+          await apiFetch(`/api/competitors/${c.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ approved: true })
@@ -872,40 +1093,38 @@
       const tier = document.getElementById('manual-comp-tier').value;
 
       try {
-        const res = await fetch(`/api/companies/${currentCompanyId}/competitors`, {
+        await apiFetch(`/api/companies/${currentCompanyId}/competitors`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name, url: url, tier: tier, approved: true })
         });
-        if (res.ok) {
-          showToast(`Added '${name}'`, 'success');
-          closeAddCompetitorModal();
-          loadCompetitorsForApprove(currentCompanyId);
-        } else {
-          showToast('Failed to add competitor.', 'error');
-        }
+        showToast(`Added '${name}'`, 'success');
+        closeAddCompetitorModal();
+        loadCompetitorsForApprove(currentCompanyId);
       } catch (err) {
-        showToast('Error adding competitor.', 'error');
+        showToast(err.message || 'Error adding competitor.', 'error');
       }
     }
 
     async function handleRunCollection() {
       const btn = document.getElementById('btn-run-collection');
       btn.disabled = true;
-      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Collecting...`;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Launching...`;
 
       try {
-        const res = await fetch(`/api/companies/${currentCompanyId}/collect`, { method: 'POST' });
-        const data = await res.json();
-        if (res.ok) {
-          showToast(data.message, 'success');
+        const data = await apiFetch(`/api/companies/${currentCompanyId}/collect`, { method: 'POST' });
+        showToast(data.message, 'success');
+        if (data.job_id) {
+          startJobPolling(data.job_id, 'collection', () => {
+            loadCompanyWorkflowData(currentCompanyId);
+            switchWorkflowStep(4);
+          });
+        } else {
           loadCompanyWorkflowData(currentCompanyId);
           switchWorkflowStep(4);
-        } else {
-          showToast(data.error || 'Failed to run collection.', 'error');
         }
       } catch (err) {
-        showToast('Error running collection.', 'error');
+        showToast(err.message || 'Failed to run collection.', 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i class="fa-solid fa-database"></i> Approve & Collect Data`;
@@ -915,20 +1134,22 @@
     async function handleRunAnalyse() {
       const btn = document.getElementById('btn-run-analyse');
       btn.disabled = true;
-      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Running Analysis...`;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Launching...`;
 
       try {
-        const res = await fetch(`/api/companies/${currentCompanyId}/analyse`, { method: 'POST' });
-        const data = await res.json();
-        if (res.ok) {
-          showToast(data.message, 'success');
+        const data = await apiFetch(`/api/companies/${currentCompanyId}/analyse`, { method: 'POST' });
+        showToast(data.message, 'success');
+        if (data.job_id) {
+          startJobPolling(data.job_id, 'analysis', () => {
+            loadCompanyWorkflowData(currentCompanyId);
+            switchWorkflowStep(5);
+          });
+        } else {
           loadCompanyWorkflowData(currentCompanyId);
           switchWorkflowStep(5);
-        } else {
-          showToast(data.error || 'Failed to run analysis.', 'error');
         }
       } catch (err) {
-        showToast('Error running analysis.', 'error');
+        showToast(err.message || 'Failed to run analysis.', 'error');
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i class="fa-solid fa-brain"></i> Run Bulk Analysis & Generate Report`;
@@ -937,104 +1158,115 @@
 
     async function loadReportView(companyId) {
       try {
-        const res = await fetch(`/api/companies/${companyId}/report`);
-        if (!res.ok) return;
-        const report = await res.json();
+        const report = await apiFetch(`/api/companies/${companyId}/report`);
 
-        // Configure Export Links
         document.getElementById('btn-export-md').href = `/api/companies/${companyId}/report/export?format=md`;
         document.getElementById('btn-export-pdf').href = `/api/companies/${companyId}/report/export?format=pdf`;
         document.getElementById('btn-export-pptx').href = `/api/companies/${companyId}/report/export?format=pptx`;
 
-        // Render Markdown snippet
         document.getElementById('report-markdown-view').innerText = report.markdown || '';
-
-        // Render 1v1 Comparison Cards
-        renderComparisonCards(report.comparisons);
+        renderComparisonCards(report.comparisons, report.company_name);
       } catch (err) {
         showToast('Error loading report view.', 'error');
       }
     }
 
-    function renderComparisonCards(comparisons) {
+    function renderComparisonCards(comparisons, targetName) {
       const container = document.getElementById('report-comparisons-container');
       if (!comparisons || comparisons.length === 0) {
         container.innerHTML = `<p class="text-xs text-slate-500 italic p-4">No 1v1 comparisons generated yet.</p>`;
         return;
       }
 
-      container.innerHTML = comparisons.map(c => `
-        <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
-          
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-            <h4 class="text-base font-bold text-white flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-              Stripe vs ${c.competitor_name}
-            </h4>
+      container.innerHTML = comparisons.map(c => {
+        const safeCompName = escapeHtml(c.competitor_name || 'Competitor');
+        const safeTargetName = escapeHtml(targetName || 'Target');
+        const safeSummary = escapeHtml(c.summary || '');
+        const safeThreat = escapeHtml(c.threat_level || 'Medium');
 
-            <div class="flex items-center gap-2">
-              ${c.is_generic ? '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Generic Comparison</span>' : '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i class="fa-solid fa-certificate mr-1"></i> Tailored Analysis</span>'}
-              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${c.threat_level === 'High' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}">
-                Threat: ${c.threat_level}
-              </span>
-            </div>
-          </div>
+        const isLowQuality = c.lower_quality || c.is_generic;
 
-          <p class="text-xs text-slate-300 italic">${c.summary}</p>
+        const ourAdv = (c.our_advantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
+        const ourDis = (c.our_disadvantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
+        const theirAdv = (c.their_advantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
+        const theirDis = (c.their_disadvantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
+        const diffs = (c.key_differentiators || []).map(d => `<span class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-900 text-slate-300 border border-slate-800">${escapeHtml(d)}</span>`).join('');
 
-          <!-- 4 Columns Grid -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+        return `
+          <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">
             
-            <!-- Our Advantages -->
-            <div class="bg-slate-900 p-4 rounded-xl border border-emerald-900/40 space-y-2">
-              <h5 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
-                <i class="fa-solid fa-circle-check"></i> Our Advantages
-              </h5>
-              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
-                ${c.our_advantages.map(a => `<li>${a}</li>`).join('')}
-              </ul>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <h4 class="text-base font-bold text-white flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                ${safeTargetName} vs ${safeCompName}
+              </h4>
+
+              <div class="flex items-center gap-2">
+                ${isLowQuality ? 
+                  '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Low confidence / Limited data</span>' : 
+                  '<span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i class="fa-solid fa-certificate mr-1"></i> Evidence-backed</span>'}
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${safeThreat === 'High' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}">
+                  Threat: ${safeThreat}
+                </span>
+              </div>
             </div>
 
-            <!-- Our Disadvantages -->
-            <div class="bg-slate-900 p-4 rounded-xl border border-red-900/40 space-y-2">
-              <h5 class="text-xs font-bold text-red-400 flex items-center gap-1.5">
-                <i class="fa-solid fa-circle-minus"></i> Our Disadvantages
-              </h5>
-              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
-                ${c.our_disadvantages.map(a => `<li>${a}</li>`).join('')}
-              </ul>
+            <p class="text-xs text-slate-300 italic">${safeSummary}</p>
+
+            <!-- 4 Columns Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+              
+              <!-- Our Advantages -->
+              <div class="bg-slate-900 p-4 rounded-xl border border-emerald-900/40 space-y-2">
+                <h5 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-circle-check"></i> Our Advantages
+                </h5>
+                <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                  ${ourAdv || '<li class="text-slate-500 italic">None noted</li>'}
+                </ul>
+              </div>
+
+              <!-- Our Disadvantages -->
+              <div class="bg-slate-900 p-4 rounded-xl border border-red-900/40 space-y-2">
+                <h5 class="text-xs font-bold text-red-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-circle-minus"></i> Our Disadvantages
+                </h5>
+                <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                  ${ourDis || '<li class="text-slate-500 italic">None noted</li>'}
+                </ul>
+              </div>
+
+              <!-- Their Advantages -->
+              <div class="bg-slate-900 p-4 rounded-xl border border-blue-900/40 space-y-2">
+                <h5 class="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-star"></i> Their Advantages
+                </h5>
+                <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                  ${theirAdv || '<li class="text-slate-500 italic">None noted</li>'}
+                </ul>
+              </div>
+
+              <!-- Their Disadvantages -->
+              <div class="bg-slate-900 p-4 rounded-xl border border-purple-900/40 space-y-2">
+                <h5 class="text-xs font-bold text-purple-400 flex items-center gap-1.5">
+                  <i class="fa-solid fa-shield-halved"></i> Their Disadvantages
+                </h5>
+                <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                  ${theirDis || '<li class="text-slate-500 italic">None noted</li>'}
+                </ul>
+              </div>
+
             </div>
 
-            <!-- Their Advantages -->
-            <div class="bg-slate-900 p-4 rounded-xl border border-blue-900/40 space-y-2">
-              <h5 class="text-xs font-bold text-blue-400 flex items-center gap-1.5">
-                <i class="fa-solid fa-star"></i> Their Advantages
-              </h5>
-              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
-                ${c.their_advantages.map(a => `<li>${a}</li>`).join('')}
-              </ul>
-            </div>
-
-            <!-- Their Disadvantages -->
-            <div class="bg-slate-900 p-4 rounded-xl border border-purple-900/40 space-y-2">
-              <h5 class="text-xs font-bold text-purple-400 flex items-center gap-1.5">
-                <i class="fa-solid fa-shield-halved"></i> Their Disadvantages
-              </h5>
-              <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
-                ${c.their_disadvantages.map(a => `<li>${a}</li>`).join('')}
-              </ul>
+            <!-- Key Differentiators Chips -->
+            <div class="pt-3 border-t border-slate-800 flex items-center gap-2 flex-wrap">
+              <span class="text-xs font-semibold text-slate-400">Key Differentiators:</span>
+              ${diffs || '<span class="text-xs text-slate-500 italic">None specified</span>'}
             </div>
 
           </div>
-
-          <!-- Key Differentiators Chips -->
-          <div class="pt-3 border-t border-slate-800 flex items-center gap-2 flex-wrap">
-            <span class="text-xs font-semibold text-slate-400">Key Differentiators:</span>
-            ${c.key_differentiators.map(d => `<span class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-900 text-slate-300 border border-slate-800">${d}</span>`).join('')}
-          </div>
-
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function copyReportMarkdown() {

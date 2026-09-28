@@ -27,7 +27,7 @@ from src.core.models import CompanyProfile
 from src.discovery.dedup import dedup_candidates, CandidateEntry
 from src.discovery.query_gen import build_query_sets, get_own_domain
 from src.discovery.scorer import score_competitor, assign_tier
-from src.discovery.sources import fetch_google_news, fetch_seed_csv, fetch_competitor_page_links
+from src.discovery.sources import fetch_google_news, fetch_seed_csv, fetch_competitor_page_links, fetch_serper_search
 from src.profile.infer_profile import is_confirmed, ProfileNotConfirmed
 
 logger = logging.getLogger(__name__)
@@ -64,25 +64,25 @@ def run_discovery(
         )
 
     own_domain = get_own_domain(own_url)
+    candidates: list[CandidateEntry] = []
 
     # 1. Generate queries
     query_sets = build_query_sets(profile)
     all_queries = [q for qs in query_sets.values() for q in qs]
-    logger.info("Generated %d queries for company_id=%s", len(all_queries), company_id)
 
-    # 2. Fetch from sources
-    candidates: list[CandidateEntry] = []
+    # 2. Search sources (Serper & Google News RSS)
+    try:
+        serper_entries = fetch_serper_search(all_queries, delay_s=delay_s)
+        candidates.extend(serper_entries)
+    except Exception as exc:
+        logger.warning("Serper search fetch failed: %s — continuing", exc)
 
-    # Google News RSS
-    if all_queries:
-        try:
-            news_entries = fetch_google_news(all_queries, delay_s=delay_s)
-            candidates.extend(news_entries)
-            logger.info("Google News: %d raw entries", len(news_entries))
-        except Exception as exc:
-            logger.warning("Google News fetch failed: %s — continuing", exc)
+    try:
+        news_entries = fetch_google_news(all_queries, delay_s=delay_s)
+        candidates.extend(news_entries)
+    except Exception as exc:
+        logger.warning("Google News fetch failed: %s — continuing", exc)
 
-    # Seed CSV (optional)
     if seed_csv:
         try:
             csv_entries = fetch_seed_csv(seed_csv)

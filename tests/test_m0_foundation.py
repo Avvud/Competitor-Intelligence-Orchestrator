@@ -21,7 +21,10 @@ from tests.conftest import groq_ok_response, groq_models_response, ollama_tags_r
 
 def test_T0_1_missing_api_key(monkeypatch, db_session, budget):
     """Config loading raises a clear RuntimeError when key is absent."""
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *a, **kw: None)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("FALLBACK_API_KEY", raising=False)
 
     from src.core import llm_client as lc
     client = lc.LLMClient(session=db_session, budget=budget)

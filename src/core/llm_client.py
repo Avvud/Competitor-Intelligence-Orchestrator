@@ -70,16 +70,12 @@ def install_redacting_formatter(keys: list[str]):
 
 def _redact(text: str) -> str:
     """Remove API key-looking strings from a message before logging."""
-    # Covers Bearer tokens, api_key=, Authorization: ...
     text = re.sub(r"(Bearer\s+)[A-Za-z0-9_\-\.]{10,}", r"\1***REDACTED***", text)
     text = re.sub(r"(api.?key[=:\s]+)[A-Za-z0-9_\-\.]{10,}", r"\1***REDACTED***", text, flags=re.I)
-    # Also redact the actual key value if we know it
-    key = os.environ.get("GROQ_API_KEY", "")
-    if key:
-        text = text.replace(key, "***REDACTED***")
-    fallback_key = os.environ.get("FALLBACK_API_KEY", "")
-    if fallback_key:
-        text = text.replace(fallback_key, "***REDACTED***")
+    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "FALLBACK_API_KEY"):
+        val = os.environ.get(k, "")
+        if val:
+            text = text.replace(val, "***REDACTED***")
     return text
 
 
@@ -88,23 +84,27 @@ def _redact(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _get_config() -> dict[str, str]:
-    """Load env vars. Raises RuntimeError if GROQ_API_KEY is missing."""
-    key = os.environ.get("GROQ_API_KEY", "")
-    if not key:
+    """Load env vars. Supports GROQ_API_KEY and GEMINI_API_KEY."""
+    from dotenv import load_dotenv
+    load_dotenv()
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if not groq_key and not gemini_key:
         raise RuntimeError(
-            "GROQ_API_KEY is not set. "
-            "Copy config/.env.example to .env and add your Groq API key."
+            "Neither GROQ_API_KEY nor GEMINI_API_KEY is set. "
+            "Add GROQ_API_KEY or GEMINI_API_KEY to your .env file."
         )
     return {
-        "groq_api_key":     key,
+        "groq_api_key":     groq_key,
+        "gemini_api_key":   gemini_key,
         "smart_base_url":   os.environ.get("SMART_BASE_URL", "https://api.groq.com/openai/v1"),
         "smart_model":      os.environ.get("SMART_MODEL", "llama-3.3-70b-versatile"),
         "fast_cloud_model": os.environ.get("FAST_CLOUD_MODEL", "llama-3.1-8b-instant"),
         "bulk_base_url":    os.environ.get("BULK_BASE_URL", "http://localhost:11434/v1"),
         "bulk_model":       os.environ.get("BULK_MODEL", "gemma3:4b"),
-        "fallback_base_url":os.environ.get("FALLBACK_BASE_URL", ""),
-        "fallback_api_key": os.environ.get("FALLBACK_API_KEY", ""),
-        "fallback_model":   os.environ.get("FALLBACK_MODEL", ""),
+        "fallback_base_url":os.environ.get("FALLBACK_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"),
+        "fallback_api_key": os.environ.get("FALLBACK_API_KEY", gemini_key),
+        "fallback_model":   os.environ.get("FALLBACK_MODEL", "gemini-2.5-flash"),
     }
 
 
@@ -296,9 +296,27 @@ class LLMClient:
                 else:
                     break
 
-        # If Groq call failed after all retries, try fallback to local bulk tier
+        # If Groq call failed after all retries, try Gemini API if available, else local bulk tier
+        if cfg.get("gemini_api_key"):
+            try:
+                logger.warning("Groq failed after retries. Falling back to Gemini API...")
+                gemini_url = cfg["fallback_base_url"]
+                gemini_key = cfg["gemini_api_key"]
+                gemini_model = cfg["fallback_model"]
+                raw = _chat_completion(gemini_url, gemini_model, prompt, api_key=gemini_key)
+                content = raw["choices"][0]["message"]["content"]
+                tokens_in  = raw.get("usage", {}).get("prompt_tokens", 0)
+                tokens_out = raw.get("usage", {}).get("completion_tokens", 0)
+                save_to_cache(self.session, prompt, gemini_model, content, company_id)
+                return LLMResult(
+                    content=content, model=gemini_model, tier="smart",
+                    tokens_in=tokens_in, tokens_out=tokens_out
+                )
+            except Exception as g_exc:
+                logger.warning("Gemini API fallback failed: %s", _redact(str(g_exc)))
+
         try:
-            logger.warning("Groq failed after retries. Falling back to local bulk tier.")
+            logger.warning("Falling back to local bulk tier.")
             result = self._call_bulk(prompt, company_id=company_id, expect_json=expect_json)
             result.lower_quality = True
             return result

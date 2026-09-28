@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Integer, String, Text, create_engine
+    Boolean, Column, DateTime, Float, Integer, String, Text, create_engine
 )
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -24,8 +24,12 @@ def get_db_url() -> str:
 
 def make_engine(db_url: str | None = None):
     url = db_url or get_db_url()
+    if url == "sqlite:///:memory:":
+        from sqlalchemy.pool import StaticPool
+        return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
+
     # Create parent directory if needed (only for file-based SQLite)
-    if url.startswith("sqlite:///") and url != "sqlite:///:memory:":
+    if url.startswith("sqlite:///"):
         path = url.removeprefix("sqlite:///")
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
     return create_engine(url, connect_args={"check_same_thread": False})
@@ -42,6 +46,20 @@ def init_db(db_url: str | None = None):
     _engine = make_engine(db_url)
     _SessionLocal = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(_engine)
+
+    # Cleanup stale running jobs on server startup
+    session = _SessionLocal()
+    try:
+        stale_jobs = session.query(Job).filter(Job.status == "running").all()
+        for j in stale_jobs:
+            j.status = "failed"
+            j.error = "interrupted by server restart"
+        if stale_jobs:
+            session.commit()
+    except Exception:
+        session.rollback()
+    finally:
+        session.close()
 
 
 def get_session() -> Session:
@@ -69,7 +87,7 @@ class Company(Base):
     slug       = Column(String, unique=True, nullable=False)
     name       = Column(String)
     url        = Column(String)
-    # pending_profile | confirmed | discovery_done | collection_done | analysis_done | done
+    # pending_profile | confirmed | discovery_done | collection_done | done
     status     = Column(String, default="pending_profile")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -124,8 +142,8 @@ class Competitor(Base):
     name       = Column(String)
     domain     = Column(String)
     aliases    = Column(Text)   # JSON string
-    tier       = Column(String)  # regional | state | national
-    score      = Column(Integer)
+    tier       = Column(String)  # direct | indirect | partner
+    score      = Column(Float, default=0.0)
     website    = Column(String)
     approved   = Column(Boolean, default=False)
     collected  = Column(Boolean, default=False)
@@ -187,7 +205,7 @@ class Job(Base):
     id          = Column(String, primary_key=True)
     company_id  = Column(String, nullable=False, index=True)  # ★
     job_type    = Column(String)
-    # pending | running | queued_budget | done | failed
+    # pending | running | queued_budget | completed | failed
     status      = Column(String, default="pending")
     progress    = Column(Text)   # JSON string {step, total, message}
     result_json = Column(Text)

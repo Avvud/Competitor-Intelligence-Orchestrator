@@ -79,13 +79,51 @@ async def generic_exception_handler(request, exc: Exception):
 # REST API Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/api/health", summary="Health check endpoint")
+def get_health(db: Session = Depends(get_db)):
+    """System health check and demo mode status."""
+    from src.pipeline.service import is_demo_mode
+    from src.core.db import Job
+    active_jobs = db.query(Job).filter(Job.status.in_(["pending", "running"])).count()
+    return {
+        "status": "ok",
+        "demo_mode": is_demo_mode(),
+        "active_jobs_count": active_jobs,
+        "database": "connected"
+    }
+
+
+@app.get("/api/jobs", summary="List background jobs")
+def list_jobs(company_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    """List recent background jobs across all companies or filtered by company_id."""
+    from src.core.db import Job
+    import json
+    query = db.query(Job)
+    if company_id:
+        query = query.filter(Job.company_id == company_id)
+    jobs = query.order_by(Job.created_at.desc()).limit(50).all()
+    res = []
+    for j in jobs:
+        res.append({
+            "id": j.id,
+            "company_id": j.company_id,
+            "job_type": j.job_type,
+            "status": j.status,
+            "progress": json.loads(j.progress) if j.progress else {},
+            "error": j.error,
+            "created_at": j.created_at.isoformat() if j.created_at else "",
+            "updated_at": j.updated_at.isoformat() if j.updated_at else "",
+        })
+    return res
+
+
 @app.get("/api/companies", summary="List tracked companies")
 def list_companies(db: Session = Depends(get_db)):
     """List all companies with status and profile info."""
     return list_companies_service(db)
 
 
-@app.post("/api/companies", summary="Create company from URL (Idempotent)")
+@app.post("/api/companies", status_code=status.HTTP_202_ACCEPTED, summary="Create company from URL (Idempotent)")
 def create_company(req: CompanyCreateRequest, db: Session = Depends(get_db)):
     """Add a new company by website URL. Returns existing entry if URL already tracked."""
     return create_company_service(
@@ -117,7 +155,7 @@ def update_profile(company_id: str, req: ProfileUpdateRequest, db: Session = Dep
     return update_profile_service(company_id, req.dict(exclude_unset=True), db)
 
 
-@app.post("/api/companies/{company_id}/discover", summary="Discover candidate competitors (Idempotent)")
+@app.post("/api/companies/{company_id}/discover", status_code=status.HTTP_202_ACCEPTED, summary="Discover candidate competitors (Idempotent)")
 def discover_competitors(company_id: str, db: Session = Depends(get_db)):
     """Launch candidate competitor discovery. Idempotent if discovery is already running."""
     return discover_competitors_service(company_id, db)
@@ -149,13 +187,13 @@ def add_competitor(company_id: str, req: CompetitorCreateRequest, db: Session = 
     )
 
 
-@app.post("/api/companies/{company_id}/collect", summary="Run data collection")
+@app.post("/api/companies/{company_id}/collect", status_code=status.HTTP_202_ACCEPTED, summary="Run data collection")
 def collect_data(company_id: str, db: Session = Depends(get_db)):
     """Run data connectors on approved competitors. Rejects with 400 if 0 approved competitors."""
     return collect_data_service(company_id, db)
 
 
-@app.post("/api/companies/{company_id}/analyse", summary="Run bulk analysis & comparison matrix")
+@app.post("/api/companies/{company_id}/analyse", status_code=status.HTTP_202_ACCEPTED, summary="Run bulk analysis & comparison matrix")
 def analyse(company_id: str, db: Session = Depends(get_db)):
     """Run bulk analysis and generate 1v1 comparison matrices."""
     return analyse_service(company_id, db)

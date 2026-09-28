@@ -231,6 +231,9 @@ def build_profile(
     return profile
 
 
+infer_profile = build_profile
+
+
 def _save_profile(profile: CompanyProfile, session: Session):
     """Upsert the profile row in the DB."""
     existing = (

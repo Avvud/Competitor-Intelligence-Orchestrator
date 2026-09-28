@@ -38,11 +38,55 @@ def _make_client() -> httpx.Client:
     )
 
 
-# ---------------------------------------------------------------------------
-# Source 1: Google News RSS
-# ---------------------------------------------------------------------------
 
-def fetch_google_news(queries: list[str], delay_s: float = 1.0) -> list[CandidateEntry]:
+def fetch_serper_search(
+    queries: list[str],
+    delay_s: float = 0.5,
+) -> list[CandidateEntry]:
+    """
+    Fetch web search results using Serper API if SERPER_API_KEY is configured.
+    """
+    import os
+    api_key = os.environ.get("SERPER_API_KEY", "")
+    if not api_key:
+        return []
+
+    entries: list[CandidateEntry] = []
+    seen_urls: set[str] = set()
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+
+    with httpx.Client(headers=headers, timeout=15.0) as client:
+        for query in queries:
+            try:
+                time.sleep(delay_s)
+                resp = client.post("https://google.serper.dev/search", json={"q": query, "num": 10})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for item in data.get("organic", []):
+                        link = item.get("link", "")
+                        title = item.get("title", "")
+                        if link and link not in seen_urls:
+                            seen_urls.add(link)
+                            name = _title_to_name(title) or item.get("title")
+                            if name:
+                                domain = link.replace("https://", "").replace("http://", "").split("/")[0]
+                                entries.append(CandidateEntry(
+                                    name=name,
+                                    domain=domain,
+                                    source="serper_search",
+                                    source_url=link,
+                                    website=link,
+                                ))
+            except Exception as exc:
+                logger.warning("Serper search query %r error: %s", query, exc)
+
+    return entries
+
+
+def fetch_google_news(
+    queries: list[str],
+    delay_s: float = 0.5,
+) -> list[CandidateEntry]:
     """
     Fetch Google News RSS for each query string.
     Parses <title> and <link> from the feed items.
