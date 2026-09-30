@@ -1013,7 +1013,7 @@
         const safeDomain = escapeHtml(c.domain || 'N/A');
         const safeUrl = sanitizeUrl(c.website || (c.domain ? 'https://' + c.domain : ''));
         const safeTier = escapeHtml(c.tier || 'direct');
-        const scorePct = (c.score * 100).toFixed(0);
+        const scorePct = Math.min(100, Math.round(c.score || 0));
 
         return `
           <div class="bg-slate-900 p-4 rounded-xl border ${c.approved ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-slate-800'} space-y-3 transition">
@@ -1186,11 +1186,18 @@
 
         const isLowQuality = c.lower_quality || c.is_generic;
 
-        const ourAdv = (c.our_advantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
-        const ourDis = (c.our_disadvantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
-        const theirAdv = (c.their_advantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
-        const theirDis = (c.their_disadvantages || []).map(a => `<li>${escapeHtml(a)}</li>`).join('');
-        const diffs = (c.key_differentiators || []).map(d => `<span class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-900 text-slate-300 border border-slate-800">${escapeHtml(d)}</span>`).join('');
+        // Extract text from advantage/disadvantage items (can be strings or objects with .point)
+        const extractText = (item) => {
+          if (typeof item === 'string') return item;
+          if (item && typeof item === 'object') return item.point || item.text || item.description || JSON.stringify(item);
+          return String(item);
+        };
+
+        const ourAdv = (c.our_advantages || []).map(a => `<li>${escapeHtml(extractText(a))}</li>`).join('');
+        const ourDis = (c.our_disadvantages || []).map(a => `<li>${escapeHtml(extractText(a))}</li>`).join('');
+        const theirAdv = (c.their_advantages || []).map(a => `<li>${escapeHtml(extractText(a))}</li>`).join('');
+        const theirDis = (c.their_disadvantages || []).map(a => `<li>${escapeHtml(extractText(a))}</li>`).join('');
+        const diffs = (c.key_differentiators || []).map(d => `<span class="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-900 text-slate-300 border border-slate-800">${escapeHtml(extractText(d))}</span>`).join('');
 
         return `
           <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4 shadow-xl">

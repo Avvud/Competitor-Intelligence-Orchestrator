@@ -39,47 +39,134 @@ def _make_client() -> httpx.Client:
 
 
 
+# Domains that are content aggregators, not competitors
+_BLOCKED_DOMAINS = {
+    "reddit.com", "www.reddit.com",
+    "quora.com", "www.quora.com",
+    "youtube.com", "www.youtube.com", "m.youtube.com",
+    "wikipedia.org", "en.wikipedia.org",
+    "twitter.com", "x.com",
+    "facebook.com", "www.facebook.com",
+    "linkedin.com", "www.linkedin.com",
+    "medium.com",
+    "pinterest.com", "www.pinterest.com",
+    "tiktok.com", "www.tiktok.com",
+    "amazon.com", "www.amazon.com",
+    "yelp.com", "www.yelp.com",
+    "bbb.org", "www.bbb.org",
+    "glassdoor.com", "www.glassdoor.com",
+    "indeed.com", "www.indeed.com",
+    "crunchbase.com", "www.crunchbase.com",
+    "trustpilot.com", "www.trustpilot.com",
+    "g2.com", "www.g2.com",
+    "capterra.com", "www.capterra.com",
+    "github.com", "www.github.com",
+    "stackoverflow.com", "www.stackoverflow.com",
+    "news.google.com",
+}
+
+# Domains that are listicle/review/blog sites, not companies themselves
+_LISTICLE_DOMAINS = {
+    "semrush.com", "www.semrush.com",
+    "hubspot.com", "blog.hubspot.com",
+    "nerdwallet.com", "www.nerdwallet.com",
+    "pcmag.com", "www.pcmag.com",
+    "techcrunch.com", "www.techcrunch.com",
+    "forbes.com", "www.forbes.com",
+    "businessinsider.com", "www.businessinsider.com",
+    "theverge.com", "www.theverge.com",
+    "cnet.com", "www.cnet.com",
+    "f6s.com", "www.f6s.com",
+    "filestage.io", "canva.com",
+}
+
+
+def _domain_to_name(domain: str) -> str:
+    """Convert a domain like 'stripe.com' to a display name like 'Stripe'."""
+    # Remove www. prefix
+    domain = domain.removeprefix("www.")
+    # Take only the main part before TLD
+    parts = domain.split(".")
+    if len(parts) >= 2:
+        name_part = parts[0]
+    else:
+        name_part = domain
+    # Capitalize
+    return name_part.replace("-", " ").replace("_", " ").title()
+
+
 def fetch_serper_search(
     queries: list[str],
     delay_s: float = 0.5,
 ) -> list[CandidateEntry]:
     """
     Fetch web search results using Serper API if SERPER_API_KEY is configured.
+    Filters out non-company domains (social media, aggregators, blogs).
+    Uses domain-derived names instead of article titles for cleaner results.
     """
     import os
     api_key = os.environ.get("SERPER_API_KEY", "")
     if not api_key:
+        logger.warning("SERPER_API_KEY is not set — skipping Serper search entirely")
         return []
 
+    logger.info("Serper search: starting with %d queries, API key: %s...", len(queries), api_key[:8])
     entries: list[CandidateEntry] = []
-    seen_urls: set[str] = set()
+    seen_domains: set[str] = set()
     headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
 
     with httpx.Client(headers=headers, timeout=15.0) as client:
         for query in queries:
             try:
                 time.sleep(delay_s)
+                logger.info("Serper query: %r", query)
                 resp = client.post("https://google.serper.dev/search", json={"q": query, "num": 10})
                 if resp.status_code == 200:
                     data = resp.json()
-                    for item in data.get("organic", []):
+                    organic = data.get("organic", [])
+                    logger.info("Serper query %r returned %d organic results", query, len(organic))
+                    for item in organic:
                         link = item.get("link", "")
                         title = item.get("title", "")
-                        if link and link not in seen_urls:
-                            seen_urls.add(link)
-                            name = _title_to_name(title) or item.get("title")
-                            if name:
-                                domain = link.replace("https://", "").replace("http://", "").split("/")[0]
-                                entries.append(CandidateEntry(
-                                    name=name,
-                                    domain=domain,
-                                    source="serper_search",
-                                    source_url=link,
-                                    website=link,
-                                ))
+                        if not link:
+                            continue
+
+                        # Extract domain
+                        domain = link.replace("https://", "").replace("http://", "").split("/")[0]
+                        base_domain = domain.removeprefix("www.")
+
+                        # Skip blocked domains (social media, aggregators, etc.)
+                        if domain in _BLOCKED_DOMAINS or base_domain in _BLOCKED_DOMAINS:
+                            logger.debug("Skipping blocked domain: %s", domain)
+                            continue
+
+                        # Skip listicle/review sites
+                        if domain in _LISTICLE_DOMAINS or base_domain in _LISTICLE_DOMAINS:
+                            logger.debug("Skipping listicle domain: %s", domain)
+                            continue
+
+                        # Skip if we already have this domain
+                        if base_domain in seen_domains:
+                            continue
+                        seen_domains.add(base_domain)
+
+                        # Use domain-derived name as primary, article title extraction as fallback
+                        name = _title_to_name(title) or _domain_to_name(base_domain)
+                        if name:
+                            entries.append(CandidateEntry(
+                                name=name,
+                                domain=base_domain,
+                                source="serper_search",
+                                source_url=link,
+                                website=f"https://{base_domain}",
+                            ))
+                else:
+                    logger.warning("Serper API returned status %d for query %r: %s",
+                                 resp.status_code, query, resp.text[:200])
             except Exception as exc:
                 logger.warning("Serper search query %r error: %s", query, exc)
 
+    logger.info("Serper search completed: %d total entries from %d queries", len(entries), len(queries))
     return entries
 
 
@@ -95,7 +182,7 @@ def fetch_google_news(
     import xml.etree.ElementTree as ET
 
     entries: list[CandidateEntry] = []
-    seen_urls: set[str] = set()
+    seen_domains: set[str] = set()
 
     with _make_client() as client:
         for query in queries:
@@ -117,17 +204,32 @@ def fetch_google_news(
                     title = title_el.text if title_el is not None else ""
                     link  = link_el.text  if link_el  is not None else ""
 
-                    if link and link not in seen_urls:
-                        seen_urls.add(link)
-                        # Extract a company name candidate from the title
-                        name = _title_to_name(title)
-                        if name:
-                            entries.append(CandidateEntry(
-                                name=name,
-                                domain=link,
-                                source="google_news_rss",
-                                source_url=link,
-                            ))
+                    if not link:
+                        continue
+
+                    # Extract proper domain from link
+                    domain = link.replace("https://", "").replace("http://", "").split("/")[0]
+                    base_domain = domain.removeprefix("www.")
+
+                    # Skip blocked and listicle domains
+                    if base_domain in _BLOCKED_DOMAINS or domain in _BLOCKED_DOMAINS:
+                        continue
+                    if base_domain in _LISTICLE_DOMAINS or domain in _LISTICLE_DOMAINS:
+                        continue
+                    if base_domain in seen_domains:
+                        continue
+                    seen_domains.add(base_domain)
+
+                    # Extract a company name candidate from the title
+                    name = _title_to_name(title) or _domain_to_name(base_domain)
+                    if name:
+                        entries.append(CandidateEntry(
+                            name=name,
+                            domain=base_domain,
+                            source="google_news_rss",
+                            source_url=link,
+                            website=f"https://{base_domain}",
+                        ))
 
             except httpx.HTTPStatusError as exc:
                 logger.warning(
@@ -137,6 +239,7 @@ def fetch_google_news(
             except Exception as exc:
                 logger.warning("Google News RSS error for query %r: %s", query, exc)
 
+    logger.info("Google News RSS completed: %d entries from %d queries", len(entries), len(queries))
     return entries
 
 

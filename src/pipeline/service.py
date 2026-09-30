@@ -75,29 +75,84 @@ def _bg_extract_profile(company_id: str, job_id: str):
         session.commit()
 
         # Step 1: Fetch website pages
+        snapshots = []
         try:
             snapshots = fetch_pages(company.url, company_id=company_id, session=session, delay_s=0.5)
+            logger.info("Fetched %d pages from %s", len(snapshots), company.url)
         except Exception as exc:
-            logger.warning("fetch_pages warning for %s: %s", company.url, exc)
-            snapshots = []
+            logger.warning("fetch_pages failed for %s: %s", company.url, exc)
+
+        if not snapshots:
+            logger.warning("No pages fetched from %s — profile will use URL/name only", company.url)
+            job.progress = json.dumps({"step": 2, "total": 4, "message": "Warning: Could not fetch website pages. Using URL-based extraction..."})
+            session.commit()
 
         job.progress = json.dumps({"step": 2, "total": 4, "message": "Extracting company profile with LLM..."})
         session.commit()
 
         # Step 2: Infer profile
         llm = LLMClient(session=session)
-        profile = infer_profile(
-            url=company.url,
-            company_id=company_id,
-            snapshots=snapshots,
-            session=session,
-            llm_client=llm
-        )
+        try:
+            profile = infer_profile(
+                url=company.url,
+                company_id=company_id,
+                snapshots=snapshots,
+                session=session,
+                llm_client=llm
+            )
+        except Exception as exc:
+            logger.error("LLM profile inference failed for %s: %s", company.url, exc, exc_info=True)
+            profile = None
+
+        # Step 3: Validate the extracted profile has at least minimal useful data
+        db_prof = session.query(DBCompanyProfile).filter(
+            DBCompanyProfile.company_id == company_id
+        ).first()
+
+        has_name = bool(db_prof and db_prof.name and db_prof.name.strip())
+        has_industry = bool(db_prof and db_prof.industry_label and db_prof.industry_label.strip())
+
+        # If profile is totally empty, populate from company name/URL so discovery has something to work with
+        if db_prof and not has_name:
+            # Derive a cleaner name from the URL domain
+            domain = company.url.replace("https://", "").replace("http://", "").split("/")[0]
+            domain = domain.removeprefix("www.")
+            clean_name = domain.split(".")[0].replace("-", " ").replace("_", " ").title()
+            db_prof.name = clean_name
+            logger.info("Profile name was empty; derived from domain: %s", clean_name)
+
+        # Don't set garbage industry fallback — leave empty and let discovery handle it
+        if db_prof and not has_industry:
+            logger.info("Profile industry is empty — discovery will use company name + domain for queries")
+
+        # Ensure search_keywords has something useful
+        if db_prof:
+            existing_keywords = []
+            if db_prof.search_keywords:
+                try:
+                    existing_keywords = json.loads(db_prof.search_keywords)
+                except Exception:
+                    pass
+            if not existing_keywords:
+                domain = company.url.replace("https://", "").replace("http://", "").split("/")[0]
+                domain = domain.removeprefix("www.")
+                fallback_kw = [db_prof.name or company.name, domain]
+                if db_prof.industry_label:
+                    fallback_kw.append(db_prof.industry_label)
+                db_prof.search_keywords = json.dumps(fallback_kw)
+                logger.info("Set fallback search_keywords: %s", fallback_kw)
+
+            session.commit()
 
         job.status = "completed"
-        job.progress = json.dumps({"step": 4, "total": 4, "message": "Profile extraction completed successfully."})
+        completeness = []
+        if has_name: completeness.append("name")
+        if has_industry: completeness.append("industry")
+        if db_prof and db_prof.hq_country: completeness.append("location")
+        msg = f"Profile extraction completed. Extracted: {', '.join(completeness) or 'minimal info (review recommended)'}."
+        job.progress = json.dumps({"step": 4, "total": 4, "message": msg})
         session.commit()
-        logger.info("Profile extraction job %s completed for company_id=%s", job_id, company_id)
+        logger.info("Profile extraction job %s completed for company_id=%s (%s)", job_id, company_id, msg)
 
     except Exception as exc:
         session.rollback()
@@ -126,18 +181,43 @@ def _bg_run_discovery(company_id: str, job_id: str):
         job.progress = json.dumps({"step": 1, "total": 4, "message": "Generating discovery search queries..."})
         session.commit()
 
+        # Build profile model — ensure we have usable data even if profile extraction was partial
+        prof_name = db_prof.name or company.name
+        prof_industry = db_prof.industry_label or ""
+        prof_cat = db_prof.industry_cat or prof_industry or ""
+
+        # Parse search_keywords from DB
+        search_keywords = []
+        if db_prof.search_keywords:
+            try:
+                search_keywords = json.loads(db_prof.search_keywords)
+            except Exception:
+                pass
+
+        # If no search keywords, generate from name/URL
+        if not search_keywords:
+            domain = company.url.replace("https://", "").replace("http://", "").split("/")[0]
+            search_keywords = [prof_name, domain]
+            if prof_industry:
+                search_keywords.append(prof_industry)
+            logger.info("Discovery: No search_keywords found, generated fallback: %s", search_keywords)
+
         p_dict = {
             "company_id": company_id,
-            "name": db_prof.name or company.name,
-            "industry_label": db_prof.industry_label or "Fintech",
-            "industry_cat": db_prof.industry_cat or "Fintech",
+            "name": prof_name,
+            "industry_label": prof_industry or "business",
+            "industry_cat": prof_cat or "general",
             "hq_city": db_prof.hq_city or "",
             "hq_state": db_prof.hq_state or "",
             "hq_country": db_prof.hq_country or "",
+            "search_keywords": search_keywords,
             "confirmed": True
         }
         prof_model = ModelCompanyProfile(**p_dict)
         llm = LLMClient(session=session)
+
+        logger.info("Discovery using profile: name=%r, industry=%r, keywords=%s, city=%r, country=%r",
+                    prof_name, prof_industry, search_keywords, db_prof.hq_city, db_prof.hq_country)
 
         job.progress = json.dumps({"step": 2, "total": 4, "message": "Searching Google News RSS & Serper API..."})
         session.commit()
@@ -177,11 +257,28 @@ def _bg_run_discovery(company_id: str, job_id: str):
                 session.commit()
                 candidates = fallback_seeds
             else:
+                serper_key = os.environ.get("SERPER_API_KEY", "")
+                detail_parts = []
+                if not serper_key:
+                    detail_parts.append("SERPER_API_KEY is NOT set in environment")
+                else:
+                    detail_parts.append(f"SERPER_API_KEY is set ({serper_key[:8]}...)")
+                detail_parts.append(f"Profile name: {db_prof.name or '(empty)'}")
+                detail_parts.append(f"Profile industry: {db_prof.industry_label or '(empty)'}")
+                detail_parts.append(f"Company URL: {company.url}")
+
+                error_msg = (
+                    f"Discovery yielded 0 candidate competitors. "
+                    f"Debug: {'; '.join(detail_parts)}. "
+                    f"Try: 1) Review profile fields are not empty, "
+                    f"2) Verify SERPER_API_KEY is valid, "
+                    f"3) Try adding competitors manually or use seed CSV."
+                )
                 job.status = "failed"
-                job.error = "Discovery yielded 0 candidate competitors. Ensure SERPER_API_KEY is configured or try adding seed CSV."
+                job.error = error_msg
                 job.progress = json.dumps({"step": 4, "total": 4, "message": "Discovery failed: 0 competitors found."})
                 session.commit()
-                logger.warning("Discovery job %s failed: 0 candidates found for company_id=%s", job_id, company_id)
+                logger.warning("Discovery job %s failed: %s", job_id, error_msg)
                 return
 
         company.status = "discovery_done"
@@ -386,7 +483,10 @@ def create_company_pipeline(
         if not clean_url.startswith("http://") and not clean_url.startswith("https://"):
             clean_url = "https://" + clean_url
 
-        slug = clean_url.replace("https://", "").replace("http://", "").split("/")[0].replace(".", "-")
+        # Strip www. prefix for cleaner slug/name derivation
+        domain_part = clean_url.replace("https://", "").replace("http://", "").split("/")[0]
+        domain_part = domain_part.removeprefix("www.")
+        slug = domain_part.replace(".", "-")
 
         # Idempotency check: return existing company if already tracked
         existing = db.query(Company).filter(

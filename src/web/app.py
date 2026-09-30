@@ -81,15 +81,30 @@ async def generic_exception_handler(request, exc: Exception):
 
 @app.get("/api/health", summary="Health check endpoint")
 def get_health(db: Session = Depends(get_db)):
-    """System health check and demo mode status."""
+    """System health check, demo mode status, and API key diagnostics."""
     from src.pipeline.service import is_demo_mode
     from src.core.db import Job
     active_jobs = db.query(Job).filter(Job.status.in_(["pending", "running"])).count()
+
+    # API key diagnostics (show if set, never show the actual key)
+    serper_key = os.environ.get("SERPER_API_KEY", "")
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+
     return {
         "status": "ok",
         "demo_mode": is_demo_mode(),
         "active_jobs_count": active_jobs,
-        "database": "connected"
+        "database": "connected",
+        "api_keys": {
+            "SERPER_API_KEY": "configured" if serper_key else "MISSING",
+            "GROQ_API_KEY": "configured" if groq_key else "MISSING",
+            "GEMINI_API_KEY": "configured" if gemini_key else "MISSING",
+        },
+        "models": {
+            "SMART_MODEL": os.environ.get("SMART_MODEL", "(default)"),
+            "BULK_MODEL": os.environ.get("BULK_MODEL", "(default)"),
+        }
     }
 
 

@@ -242,13 +242,23 @@ def _save_profile(profile: CompanyProfile, session: Session):
         .first()
     )
     if existing:
-        # Update in place
+        # Update all fields — including the ones that were previously missed
         for field in ["name", "industry_label", "industry_cat", "hq_city",
-                      "hq_state", "hq_country", "size_hint", "founding_year"]:
-            setattr(existing, field, getattr(profile, field))
+                      "hq_state", "hq_country", "size_hint", "founding_year",
+                      "target_customers", "price_band", "business_model"]:
+            val = getattr(profile, field)
+            if val is not None:
+                setattr(existing, field, val)
+        # JSON-serialised fields
+        if profile.products:
+            existing.products = json.dumps(profile.products)
+        if profile.search_keywords:
+            existing.search_keywords = json.dumps(profile.search_keywords)
         existing.confidence  = json.dumps(profile.confidence)
         existing.source_urls = json.dumps(profile.source_urls)
         session.commit()
+        logger.info("Profile updated for company_id=%s (name=%s, industry=%s)",
+                    profile.company_id, existing.name, existing.industry_label)
     else:
         row = CompanyProfileRow(
             id=str(uuid.uuid4()),

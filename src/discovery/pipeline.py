@@ -69,17 +69,27 @@ def run_discovery(
     # 1. Generate queries
     query_sets = build_query_sets(profile)
     all_queries = [q for qs in query_sets.values() for q in qs]
+    logger.info("Discovery queries generated: %d total (%s)",
+                len(all_queries),
+                {k: len(v) for k, v in query_sets.items()})
+    for q in all_queries[:10]:  # log first 10
+        logger.info("  Query: %r", q)
+    if not all_queries:
+        logger.warning("No queries generated! Profile: name=%r, industry=%r, city=%r, country=%r, keywords=%s",
+                       profile.name, profile.industry_label, profile.hq_city, profile.hq_country, profile.search_keywords)
 
     # 2. Search sources (Serper & Google News RSS)
     try:
         serper_entries = fetch_serper_search(all_queries, delay_s=delay_s)
         candidates.extend(serper_entries)
+        logger.info("Serper search returned %d entries", len(serper_entries))
     except Exception as exc:
         logger.warning("Serper search fetch failed: %s — continuing", exc)
 
     try:
         news_entries = fetch_google_news(all_queries, delay_s=delay_s)
         candidates.extend(news_entries)
+        logger.info("Google News RSS returned %d entries", len(news_entries))
     except Exception as exc:
         logger.warning("Google News fetch failed: %s — continuing", exc)
 

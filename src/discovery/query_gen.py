@@ -57,7 +57,8 @@ def build_query_sets(profile: CompanyProfile) -> dict[str, list[str]]:
             "Profile is not confirmed. Run human checkpoint 1 first."
         )
 
-    industry_label = _clean(profile.industry_label) or "business"
+    industry_label = _clean(profile.industry_label)
+    brand = _clean(profile.name) or "company"
     keywords = [kw for kw in (profile.search_keywords or []) if _clean(kw)]
 
     city    = _clean(profile.hq_city)
@@ -72,22 +73,45 @@ def build_query_sets(profile: CompanyProfile) -> dict[str, list[str]]:
 
     # Regional — uses city name
     if city:
-        result["regional"] = _make_queries(industry_label, city, keywords)
+        label = industry_label or brand
+        result["regional"] = _make_queries(label, city, keywords)
 
     # State
     if state:
-        result["state"] = _make_queries(industry_label, state, keywords)
+        label = industry_label or brand
+        result["state"] = _make_queries(label, state, keywords)
 
     # National — uses country name or brand/industry fallback if no geo set
     if country:
-        result["national"] = _make_queries(industry_label, country, keywords)
-    elif not city and not state:
-        brand = _clean(profile.name) or industry_label
-        result["national"] = [
-            f"{brand} competitors",
-            f"{brand} alternatives",
-            f"top {industry_label} companies",
-        ]
+        label = industry_label or brand
+        result["national"] = _make_queries(label, country, keywords)
+
+    # Always add competitor-focused queries (these surface actual company domains)
+    competitor_queries = []
+
+    # Core competitor queries using brand name
+    competitor_queries.append(f"{brand} competitors")
+    competitor_queries.append(f"{brand} alternatives")
+    competitor_queries.append(f"companies like {brand}")
+    competitor_queries.append(f"{brand} vs")
+
+    # Industry-based competitor queries
+    if industry_label and industry_label != brand:
+        competitor_queries.append(f"top {industry_label} companies")
+        competitor_queries.append(f"best {industry_label} platforms")
+        competitor_queries.append(f"{industry_label} market leaders")
+
+    # Keyword-based competitor queries
+    for kw in keywords[:3]:
+        if kw.lower() != brand.lower() and kw.lower() != (industry_label or "").lower():
+            competitor_queries.append(f"best {kw} companies")
+
+    # Deduplicate and add to national tier
+    existing = set(q.lower() for q in result.get("national", []))
+    for q in competitor_queries:
+        if q.lower() not in existing:
+            result["national"].append(q)
+            existing.add(q.lower())
 
     return result
 

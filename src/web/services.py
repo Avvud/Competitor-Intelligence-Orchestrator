@@ -337,11 +337,29 @@ def get_report_service(company_id: str, session: Session) -> Dict[str, Any]:
         t_level = data.get("threat_score") or data.get("threat_level") or "Medium"
         summary = data.get("summary") or f"1v1 comparison against {c_name_final}"
 
-        our_adv = data.get("our_advantages") or []
-        our_dis = data.get("our_disadvantages") or []
-        their_adv = data.get("their_advantages_to_adopt") or data.get("their_advantages") or []
-        their_dis = data.get("their_disadvantages") or []
-        diffs = data.get("key_differentiators") or []
+        # Extract clean text from advantage/disadvantage items
+        # LLM returns objects like {"point": "...", "evidence": "...", "sources": [...]}
+        def _extract_points(items):
+            """Extract text from a list that may contain strings or dicts."""
+            if not items:
+                return []
+            result = []
+            for item in items:
+                if isinstance(item, str):
+                    result.append(item)
+                elif isinstance(item, dict):
+                    point = item.get("point") or item.get("text") or item.get("description") or ""
+                    if point:
+                        result.append(point)
+                else:
+                    result.append(str(item))
+            return result
+
+        our_adv = _extract_points(data.get("our_advantages") or [])
+        our_dis = _extract_points(data.get("our_disadvantages") or [])
+        their_adv = _extract_points(data.get("their_advantages_to_adopt") or data.get("their_advantages") or [])
+        their_dis = _extract_points(data.get("their_disadvantages") or [])
+        diffs = _extract_points(data.get("key_differentiators") or [])
         is_gen = data.get("is_generic", False)
         lower_q = getattr(comp, "lower_quality", False) or data.get("lower_quality", False)
 
